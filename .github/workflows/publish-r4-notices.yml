@@ -1,0 +1,71 @@
+name: Publish R4 distribution notices
+
+on:
+  push:
+    branches: [publish-r4-notices-control]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout corrected publication source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 1b86ee4be84b1a9002df21b43379dd8f1a3ac7f5
+          submodules: recursive
+          fetch-depth: 0
+      - name: Download verified R4 assets
+        run: gh release download cheapmine-3-r4 --dir "$RUNNER_TEMP/r4-release"
+      - name: Update notices and source metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, os, shutil, subprocess
+          from pathlib import Path
+          out = Path(os.environ['RUNNER_TEMP']) / 'r4-release'
+          binary_commit = 'd778235f5ba4114380bd91282d2d23d288034cab'
+          publication_commit = '1b86ee4be84b1a9002df21b43379dd8f1a3ac7f5'
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          def git(*args): return subprocess.check_output(['git', *args]).decode().strip()
+          assert git('rev-parse', 'HEAD') == publication_commit
+          assert set(git('diff', '--name-only', binary_commit, publication_commit).splitlines()) == {'CREDITS.md', 'NOTICE.md'}
+          for line in (out/'SHA256SUMS.txt').read_text().splitlines():
+              digest, name = line.split('  ', 1)
+              assert sha(out/name) == digest, name
+          assert (out/'SOURCE_COMMIT.txt').read_text().strip() == binary_commit
+          expected_ipa = 'c5e822d355721f1e5e8ce231620280ff5949bc90734f9ac9d5c0f2f8892d73c2'
+          assert sha(out/'Cheapmine-3-R4.ipa') == expected_ipa
+          assert sha(out/'Cheapmine-3-R4.tipa') == expected_ipa
+          spec = importlib.util.spec_from_file_location('release_packager', 'scripts/package-public-release.py')
+          packager = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(packager)
+          packager.source_zip(out/'Cheapmine-3-R4-source.zip')
+          bundle = out/'Cheapmine-3-R4-source.bundle'
+          bundle.unlink()
+          subprocess.run(['git','bundle','create',str(bundle),'HEAD','^1a54e76d515ff5916b64e44d6afbb57d2bc89ee9'],check=True)
+          for name in ('CREDITS.md', 'NOTICE.md'):
+              shutil.copyfile(name, out/name)
+          provenance = json.loads((out/'PROVENANCE.json').read_text())
+          assert provenance['binary_source_commit'] == binary_commit
+          provenance['publication_source_commit'] = publication_commit
+          provenance['publication_changes'] = 'Only CREDITS.md and NOTICE.md changed after compilation. Runtime source and IPA/TIPA bytes are unchanged; SOURCE_COMMIT.txt and SOURCE_PATCH.diff describe the compiled source.'
+          (out/'PROVENANCE.json').write_text(json.dumps(provenance, indent=2, sort_keys=True)+'\n')
+          lines = [sha(p)+'  '+p.name for p in sorted(out.iterdir()) if p.is_file() and p.name != 'SHA256SUMS.txt']
+          (out/'SHA256SUMS.txt').write_text('\n'.join(lines)+'\n')
+          print('Corrected distribution notices; compiled source and IPA/TIPA bytes preserved.')
+          PY
+      - name: Publish corrected notices and source archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r4-release"
+          gh release upload cheapmine-3-r4 --clobber CREDITS.md NOTICE.md PROVENANCE.json Cheapmine-3-R4-source.zip Cheapmine-3-R4-source.bundle SHA256SUMS.txt
