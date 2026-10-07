@@ -43,7 +43,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install ldid dpkg make libarchive openssl@3 xz zstd gnu-sed coreutils findutils
+          # Dopamine uses -s on an app bundle, supported by Procursus ldid.
+          if brew list --versions ldid >/dev/null; then
+            brew uninstall --ignore-dependencies ldid
+          fi
+          brew install ldid-procursus dpkg make libarchive openssl@3 xz zstd gnu-sed coreutils findutils
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: Install pinned Theos and SDK
