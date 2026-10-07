@@ -1,0 +1,94 @@
+name: Dopamine 3 touch diagnostic IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: touchdiag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build controls
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: control
+      - name: Prepare pinned official source and diagnostic patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/opa334/Dopamine.git source
+          git -C source checkout 1a54e76d515ff5916b64e44d6afbb57d2bc89ee9
+          git -C source apply --check ../control/touchdiag.patch
+          git -C source apply ../control/touchdiag.patch
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: latest-stable
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Dopamine uses -s on an app bundle, supported by Procursus ldid.
+          if brew list --versions ldid >/dev/null; then
+            brew uninstall --ignore-dependencies ldid
+          fi
+          brew install ldid-procursus dpkg make libarchive openssl@3 xz zstd gnu-sed coreutils findutils
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+      - name: Install pinned Theos and SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export THEOS="$RUNNER_TEMP/theos"
+          git clone https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+          git -C "$THEOS" submodule update --init --recursive
+          mkdir -p "$THEOS/sdks"
+          curl -fL --retry 3 https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o "$RUNNER_TEMP/iphone-sdk.tar.xz"
+          tar -xJf "$RUNNER_TEMP/iphone-sdk.tar.xz" -C "$THEOS/sdks"
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+      - name: Build pinned trustcache utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/CRKatri/trustcache "$RUNNER_TEMP/trustcache"
+          cd "$RUNNER_TEMP/trustcache"
+          git checkout aa0e8847529cf76576fce8d2dbc9e088c8f1a0df
+          export CFLAGS="-I$(brew --prefix openssl@3)/include"
+          export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+          gmake -j2 OPENSSL=1
+          echo "$RUNNER_TEMP/trustcache" >> "$GITHUB_PATH"
+      - name: Compile and package IPA
+        shell: bash
+        run: bash source/scripts/build-touchdiag-ipa.sh
+      - name: Upload IPA and verification details
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Dopamine3-touchdiag1-iPhone8Plus-20H350
+          path: source/.build/artifacts/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish diagnostic IPA for sideloading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create 3.0.10-touchdiag1 \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Dopamine 3 touch diagnostic 1 (not a touch fix)" \
+            --notes-file source/TOUCH-DIAGNOSTIC.md \
+            source/.build/artifacts/*.ipa \
+            source/.build/artifacts/SHA256SUMS.txt \
+            source/.build/artifacts/SOURCE_COMMIT.txt \
+            source/.build/artifacts/SOURCE_PATCH.diff \
+            source/.build/artifacts/SOURCE_PATCH_SHA256.txt
