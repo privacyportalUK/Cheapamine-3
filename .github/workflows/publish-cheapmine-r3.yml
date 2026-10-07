@@ -1,0 +1,61 @@
+name: Publish Cheapmine 3 R3
+on:
+  push:
+    branches: [release-r3-control]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: publish-cheapmine-r3
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout publication controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Verify and import attributed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'd05af07947b6bd24d5da74758ed31802f2910a4e4301f851c631041dd224e6ef  cheapmine-3-public-source.bundle' | sha256sum -c -
+          git bundle verify cheapmine-3-public-source.bundle
+          git fetch ./cheapmine-3-public-source.bundle refs/heads/cheapamine3-package-restart
+          test "$(git rev-parse FETCH_HEAD)" = e9306f5fa11dc251a1ef39ea4a36266b27b30a56
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive
+      - name: Prepare unchanged binary and source downloads
+        run: python3 scripts/package-public-release.py .build/public-release
+      - name: Publish source branch
+        run: git push origin HEAD:refs/heads/cheapmine-3-r3
+      - name: Publish release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create cheapmine-3-r3 \
+            --target e9306f5fa11dc251a1ef39ea4a36266b27b30a56 \
+            --title 'Cheapmine 3 — R3' --latest \
+            --notes-file RELEASE.md .build/public-release/*
+      - name: Retire failed experimental publications
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in fresh-1-1 fresh-2-1; do
+            gh release delete "$tag" --cleanup-tag --yes
+          done
+          for branch in fresh-build-control fresh2-build-control; do
+            gh api --method DELETE "repos/$GH_REPO/git/refs/heads/$branch"
+          done
+          for run in 37650764220 37654217043; do
+            gh api --method DELETE "repos/$GH_REPO/actions/runs/$run"
+          done
