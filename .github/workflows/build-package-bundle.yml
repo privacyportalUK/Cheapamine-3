@@ -1,0 +1,107 @@
+name: Cheapamine 3 R3 IPA
+
+on:
+  push:
+    branches: [package-build-control]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Load exact reviewed source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '9797ffa824039f7257e195ec56118bc7ee60f6f564802d8ebd6c9627b01331b7  cheapamine3-r3-source.bundle' | shasum -a 256 -c -
+          cp cheapamine3-r3-source.bundle "$RUNNER_TEMP/package-source.bundle"
+          git bundle verify cheapamine3-r3-source.bundle
+          git fetch ./cheapamine3-r3-source.bundle refs/heads/cheapamine3-package-restart
+          test "$(git rev-parse FETCH_HEAD)" = '50d1ed723c3acae3eace59c1d8fbedd741880a7f'
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: latest-stable
+      - name: Validate restart routing and cleanup handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-screen-restart.sh
+          python3 BaseBin/systemhook/tests/test_package_restart.py
+          python3 BaseBin/jbctl/tests/test_restart_guards.py
+          python3 Application/tests/test_jbctl_handoff.py
+          python3 Application/tests/test_jbctl_reader.py
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Dopamine uses -s on an app bundle, supported by Procursus ldid.
+          if brew list --versions ldid >/dev/null; then
+            brew uninstall --ignore-dependencies ldid
+          fi
+          brew install ldid-procursus dpkg make libarchive openssl@3 xz zstd gnu-sed coreutils findutils
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+      - name: Install pinned Theos and SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export THEOS="$RUNNER_TEMP/theos"
+          git clone https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+          git -C "$THEOS" submodule update --init --recursive
+          mkdir -p "$THEOS/sdks"
+          curl -fL --retry 3 https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o "$RUNNER_TEMP/iphone-sdk.tar.xz"
+          tar -xJf "$RUNNER_TEMP/iphone-sdk.tar.xz" -C "$THEOS/sdks"
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+      - name: Build pinned trustcache utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/CRKatri/trustcache "$RUNNER_TEMP/trustcache"
+          cd "$RUNNER_TEMP/trustcache"
+          git checkout aa0e8847529cf76576fce8d2dbc9e088c8f1a0df
+          export CFLAGS="-I$(brew --prefix openssl@3)/include"
+          export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+          gmake -j2 OPENSSL=1
+          echo "$RUNNER_TEMP/trustcache" >> "$GITHUB_PATH"
+      - name: Compile and verify IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-package-ipa.sh
+          cp "$RUNNER_TEMP/package-source.bundle" .build/artifacts/SOURCE.bundle
+      - name: Upload IPA and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Cheapamine3-R3-iPhone8Plus-20H350
+          path: .build/artifacts/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish IPA for sideloading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "package-r3-${GITHUB_RUN_NUMBER}" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Cheapamine 3 R3 — iPhone 8 Plus / 16.7.10" \
+            --notes-file PACKAGE-RESTART.md .build/artifacts/*
