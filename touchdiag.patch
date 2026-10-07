@@ -277,7 +277,7 @@ index 0000000..66df998
 +#endif
 diff --git a/BaseBin/touchlog/src/main.c b/BaseBin/touchlog/src/main.c
 new file mode 100644
-index 0000000..94e5348
+index 0000000..f0faec1
 --- /dev/null
 +++ b/BaseBin/touchlog/src/main.c
 @@ -0,0 +1,239 @@
@@ -427,7 +427,7 @@ index 0000000..94e5348
 +    CFMutableDictionaryRef matching = IOServiceMatching("AppleHIDTransportDeviceSPI");
 +    if (!matching) goto cleanup;
 +    io_iterator_t iterator = IO_OBJECT_NULL;
-+    kr = IOServiceGetMatchingServices(kIOMasterPortDefault, matching, &iterator);
++    kr = IOServiceGetMatchingServices(MACH_PORT_NULL, matching, &iterator);
 +    if (kr != KERN_SUCCESS) goto cleanup;
 +    service = IOIteratorNext(iterator);
 +    io_service_t another = IOIteratorNext(iterator);
