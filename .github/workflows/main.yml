@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cheapamine3-${{ github.ref }}
@@ -20,21 +20,9 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Apply and test the source port
+      - name: Test restart policy
         shell: bash
-        run: |
-          set -euo pipefail
-          if git apply --reverse --check cheapamine3.patch 2>/dev/null; then
-            echo 'Source port already applied.'
-          else
-            git apply --check cheapamine3.patch
-            git apply --index cheapamine3.patch
-          fi
-          bash scripts/test-screen-restart.sh
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Port Cheapamine selective restart to Dopamine 3.0.10'
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+        run: bash scripts/test-screen-restart.sh
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
         with:
