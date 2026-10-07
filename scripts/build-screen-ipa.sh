@@ -18,8 +18,8 @@ git submodule update --init --recursive
 )
 gmake -j2 NIGHTLY=1
 mkdir -p .build/artifacts
-cp Application/Dopamine.ipa .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
-python3 scripts/verify-screen-ipa.py .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
+cp Application/Dopamine.ipa .build/artifacts/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa
+python3 scripts/verify-screen-ipa.py .build/artifacts/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa
 shasum -a 256 .build/artifacts/*.ipa > .build/artifacts/SHA256SUMS.txt
 git rev-parse HEAD > .build/artifacts/SOURCE_COMMIT.txt
 git submodule status --recursive > .build/artifacts/SUBMODULES.txt

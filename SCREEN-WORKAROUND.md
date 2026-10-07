@@ -4,6 +4,11 @@ Experimental port of Cheapamine's selective service restart to Dopamine 3.0.10.
 This is an unofficial test build. A successful compile does not establish that
 the touchscreen works or that the jailbreak remains stable on an actual phone.
 
+Revision 2 fixes the first build's `Creating fakelib failed with error: 2`:
+its version marker exceeded dyld's 16-byte UUID field. The compact `3.0.10-s2`
+marker fits, and the host and IPA checks now enforce that size limit.
+Normally restart the phone before installing and testing this revision.
+
 ## Source and changes
 
 - Dopamine base: `1a54e76d515ff5916b64e44d6afbb57d2bc89ee9` (tag `3.0.10`).
@@ -20,7 +25,7 @@ the touchscreen works or that the jailbreak remains stable on an actual phone.
 - Disables app in-place updates on the target device: those require launchd to
   restart and cannot be completed by a selective restart. Update by a normal
   reboot followed by sideloading and re-jailbreaking.
-- The `.version` marker is `3.0.10-screen1`, and the app is labelled
+- The `.version` marker is `3.0.10-s2`, and the app is labelled
   `Cheapamine 3 Test`. The upstream app identifier is retained for compatibility.
 
 ## Installation and first test

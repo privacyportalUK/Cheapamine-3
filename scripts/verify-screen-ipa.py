@@ -19,7 +19,9 @@ with zipfile.ZipFile(sys.argv[1]) as ipa:
         assert ipa.getinfo(prefix + resource).file_size > 0, resource
     with tarfile.open(fileobj=io.BytesIO(ipa.read(prefix + 'basebin.tar'))) as basebin:
         members = {m.name.removeprefix('./'): m for m in basebin.getmembers()}
-        assert basebin.extractfile(members['basebin/.version']).read().strip() == b'3.0.10-screen1'
+        version = basebin.extractfile(members['basebin/.version']).read()
+        assert version == b'3.0.10-s2'
+        assert len(b'DOPA' + version + b'\0') <= 16, 'Basebin version exceeds dyld UUID capacity'
         helper = basebin.extractfile(members['basebin/jbctl']).read()
         assert b'screen_restart\0' in helper, 'IPA contains unmodified jbctl'
         assert b'iPhone10,2\0' in helper and b'iPhone10,5\0' in helper
