@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cheapamine3-${{ github.ref }}
@@ -20,21 +20,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Apply version marker correction
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git apply --reverse --check screen2.patch 2>/dev/null; then
-            echo 'Version marker correction already applied.'
-          else
-            git apply --check screen2.patch
-            git apply --index screen2.patch
-          fi
-          bash scripts/test-screen-restart.sh
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Fit version marker within dyld UUID and add regression checks'
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
       - name: Test restart policy
         shell: bash
         run: bash scripts/test-screen-restart.sh
