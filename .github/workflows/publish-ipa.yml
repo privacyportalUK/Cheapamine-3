@@ -45,7 +45,7 @@ jobs:
             "$RUNNER_TEMP/revision2/SHA256SUMS.txt" \
             "$RUNNER_TEMP/revision2/SOURCE_COMMIT.txt" \
             --repo "$GITHUB_REPOSITORY" \
-            --target 649f8350b0b628f1bd85a87d83097f728c9e6386 \
+            --target "$GITHUB_SHA" \
             --prerelease \
             --title 'Cheapamine 3 Test revision 2 (experimental)' \
             --notes-file SCREEN-WORKAROUND.md
