@@ -1,0 +1,97 @@
+diff --git a/Application/Dopamine/Jailbreak/DOEnvironmentManager.m b/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
+index 3f68189..d323b41 100644
+--- a/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
++++ b/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
+@@ -457,7 +457,7 @@ - (void)respring
+ - (void)rebootUserspace
+ {
+     NSString *activeVersion = [self.jailbrokenVersion stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+-    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-screen1"]) {
++    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-s2"]) {
+         [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapamine 3 Test first. The active jailbreak has no screen-restart helper." debug:NO];
+         return;
+     }
+diff --git a/BaseBin/_external/basebin/.version b/BaseBin/_external/basebin/.version
+index 2582126..b4d87e9 100644
+--- a/BaseBin/_external/basebin/.version
++++ b/BaseBin/_external/basebin/.version
+@@ -1 +1 @@
+-3.0.10-screen1
++3.0.10-s2
+\ No newline at end of file
+diff --git a/SCREEN-WORKAROUND.md b/SCREEN-WORKAROUND.md
+index 40f8283..6c643c2 100644
+--- a/SCREEN-WORKAROUND.md
++++ b/SCREEN-WORKAROUND.md
+@@ -4,6 +4,11 @@ Experimental port of Cheapamine's selective service restart to Dopamine 3.0.10.
+ This is an unofficial test build. A successful compile does not establish that
+ the touchscreen works or that the jailbreak remains stable on an actual phone.
+ 
++Revision 2 fixes the first build's `Creating fakelib failed with error: 2`:
++its version marker exceeded dyld's 16-byte UUID field. The compact `3.0.10-s2`
++marker fits, and the host and IPA checks now enforce that size limit.
++Normally restart the phone before installing and testing this revision.
++
+ ## Source and changes
+ 
+ - Dopamine base: `1a54e76d515ff5916b64e44d6afbb57d2bc89ee9` (tag `3.0.10`).
+@@ -20,7 +25,7 @@ the touchscreen works or that the jailbreak remains stable on an actual phone.
+ - Disables app in-place updates on the target device: those require launchd to
+   restart and cannot be completed by a selective restart. Update by a normal
+   reboot followed by sideloading and re-jailbreaking.
+-- The `.version` marker is `3.0.10-screen1`, and the app is labelled
++- The `.version` marker is `3.0.10-s2`, and the app is labelled
+   `Cheapamine 3 Test`. The upstream app identifier is retained for compatibility.
+ 
+ ## Installation and first test
+diff --git a/scripts/build-screen-ipa.sh b/scripts/build-screen-ipa.sh
+index 5bf56f1..b52ac14 100644
+--- a/scripts/build-screen-ipa.sh
++++ b/scripts/build-screen-ipa.sh
+@@ -18,8 +18,8 @@ git submodule update --init --recursive
+ )
+ gmake -j2 NIGHTLY=1
+ mkdir -p .build/artifacts
+-cp Application/Dopamine.ipa .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
+-python3 scripts/verify-screen-ipa.py .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
++cp Application/Dopamine.ipa .build/artifacts/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa
++python3 scripts/verify-screen-ipa.py .build/artifacts/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa
+ shasum -a 256 .build/artifacts/*.ipa > .build/artifacts/SHA256SUMS.txt
+ git rev-parse HEAD > .build/artifacts/SOURCE_COMMIT.txt
+ git submodule status --recursive > .build/artifacts/SUBMODULES.txt
+diff --git a/scripts/test-screen-restart.sh b/scripts/test-screen-restart.sh
+index 6f47093..b452ab8 100644
+--- a/scripts/test-screen-restart.sh
++++ b/scripts/test-screen-restart.sh
+@@ -1,6 +1,16 @@
+ #!/bin/bash
+ set -euo pipefail
+ cd "$(dirname "$0")/.."
++python3 - <<'PY'
++from pathlib import Path
++version = Path('BaseBin/_external/basebin/.version').read_bytes()
++# basebin_gen.m puts DOPA + the raw version + NUL into a 16-byte LC_UUID.
++# This exercises the actual build input, including accidental trailing newlines.
++assert version and b'\0' not in version, 'Invalid basebin version marker'
++assert version == version.strip(), 'Version marker must have no surrounding whitespace'
++assert len(b'DOPA' + version + b'\0') <= 16, 'Basebin version exceeds dyld LC_UUID capacity'
++print('Basebin version fits the dyld UUID field.')
++PY
+ mkdir -p .build/tests
+ clang -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+   tests/screen_restart_test.c -o .build/tests/screen_restart_test
+diff --git a/scripts/verify-screen-ipa.py b/scripts/verify-screen-ipa.py
+index 88d2b8c..5214b52 100644
+--- a/scripts/verify-screen-ipa.py
++++ b/scripts/verify-screen-ipa.py
+@@ -19,7 +19,9 @@ with zipfile.ZipFile(sys.argv[1]) as ipa:
+         assert ipa.getinfo(prefix + resource).file_size > 0, resource
+     with tarfile.open(fileobj=io.BytesIO(ipa.read(prefix + 'basebin.tar'))) as basebin:
+         members = {m.name.removeprefix('./'): m for m in basebin.getmembers()}
+-        assert basebin.extractfile(members['basebin/.version']).read().strip() == b'3.0.10-screen1'
++        version = basebin.extractfile(members['basebin/.version']).read()
++        assert version == b'3.0.10-s2'
++        assert len(b'DOPA' + version + b'\0') <= 16, 'Basebin version exceeds dyld UUID capacity'
+         helper = basebin.extractfile(members['basebin/jbctl']).read()
+         assert b'screen_restart\0' in helper, 'IPA contains unmodified jbctl'
+         assert b'iPhone10,2\0' in helper and b'iPhone10,5\0' in helper
