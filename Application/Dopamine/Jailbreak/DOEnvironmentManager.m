@@ -456,7 +456,8 @@ extern char **environ;
 
 - (void)rebootUserspace
 {
-    if (self.isScreenWorkaroundEnabled && ![self.jailbrokenVersion isEqualToString:@"3.0.10-screen1"]) {
+    NSString *activeVersion = [self.jailbrokenVersion stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-screen1"]) {
         [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapamine 3 Test first. The active jailbreak has no screen-restart helper." debug:NO];
         return;
     }
