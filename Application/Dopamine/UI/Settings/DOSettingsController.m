@@ -472,7 +472,8 @@
     DOEnvironmentManager *envManager = [DOEnvironmentManager sharedManager];
     if (envManager.isJailbroken) {
         [[DOEnvironmentManager sharedManager] setTweakInjectionEnabled:((NSNumber *)value).boolValue];
-        UIAlertController *userspaceRebootAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Title") message:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Body") preferredStyle:UIAlertControllerStyleAlert];
+        NSString *restartMessage = envManager.isScreenWorkaroundEnabled ? @"This experimental build restarts selected services to preserve touch on some replacement screens. Tweak injection may remain unchanged in other running services. A normal reboot followed by re-jailbreaking is recommended when changing this setting." : DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Body");
+        UIAlertController *userspaceRebootAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Title") message:restartMessage preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction *rebootNowAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Reboot_Now") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
             [[DOEnvironmentManager sharedManager] rebootUserspace];
         }];

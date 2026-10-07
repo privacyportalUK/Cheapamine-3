@@ -28,6 +28,7 @@
 #import "DOPreferenceManager.h"
 #import "NSData+Hex.h"
 #import <LocalAuthentication/LocalAuthentication.h>
+#import <cheapamine3.h>
 
 int reboot3(uint64_t flags, ...);
 CFPropertyListRef MGCopyAnswer(CFStringRef);
@@ -370,7 +371,7 @@ extern char **environ;
 {
     bool needsLegacySolution = false;
     if (self.jailbrokenVersion) {
-        needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
+        needsLegacySolution = ([self.jailbrokenVersion compare:@"3.0.5" options:NSNumericSearch] == NSOrderedAscending);
     }
 
     char **argBuf = malloc((args.count + 4) * sizeof(char *));
@@ -407,7 +408,7 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
-            if (needsLegacySolution) {
+            if (needsLegacySolution && r == 0 && pid > 0) {
                 // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
                 // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
                 kill(pid, SIGCONT);
@@ -434,6 +435,7 @@ extern char **environ;
         close(waitPipe[1]);
     }
 
+    if (r != 0 || pid <= 0) return r != 0 ? r : -1;
     return cmd_wait_for_exit(pid);
 }
 
@@ -454,7 +456,24 @@ extern char **environ;
 
 - (void)rebootUserspace
 {
-    [self spawnJbctlAsRootWithArgs:@[@"reboot_userspace"]];
+    if (self.isScreenWorkaroundEnabled && ![self.jailbrokenVersion isEqualToString:@"3.0.10-screen1"]) {
+        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapamine 3 Test first. The active jailbreak has no screen-restart helper." debug:NO];
+        return;
+    }
+    // Keep Dopamine 3's --waitfor handoff: never restart services while the app
+    // still holds temporary root credentials or its unsandboxed label.
+    NSString *command = self.isScreenWorkaroundEnabled ? @"screen_restart" : @"reboot_userspace";
+    int status = [self spawnJbctlAsRootWithArgs:@[command]];
+    if (status != 0) {
+        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Restart failed (%d). Force-restart the phone before trying again.", status] debug:NO];
+    }
+}
+
+- (BOOL)isScreenWorkaroundEnabled
+{
+    struct utsname device;
+    NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
+    return uname(&device) == 0 && cheapamine3_target(device.machine, version.majorVersion, version.minorVersion, version.patchVersion);
 }
 
 - (void)rebuildIconCache
@@ -508,6 +527,11 @@ extern char **environ;
 
 - (NSError*)updateEnvironment
 {
+    if (self.isScreenWorkaroundEnabled) {
+        // A staged update only completes after launchd restarts. A selective
+        // restart cannot substitute for that update transaction.
+        return [NSError errorWithDomain:@"Cheapamine3" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Restart the phone normally, install the new IPA, then jailbreak again. In-place updates require a userspace reboot and are unavailable in this experimental build."}];
+    }
     NSString *newBasebinTarPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"basebin.tar"];
     int result = jbclient_platform_stage_jailbreak_update(newBasebinTarPath.fileSystemRepresentation);
     if (result == 0) {
@@ -519,6 +543,10 @@ extern char **environ;
 
 - (void)updateJailbreakFromTIPA:(NSString *)tipaPath
 {
+    if (self.isScreenWorkaroundEnabled) {
+        [[DOUIManager sharedInstance] sendLog:@"Restart normally and sideload the new IPA to update this experimental build." debug:NO];
+        return;
+    }
     [self spawnJbctlAsRootWithArgs:@[@"update", @"tipa", tipaPath]];
 }
 

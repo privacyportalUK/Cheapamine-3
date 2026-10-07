@@ -96,7 +96,7 @@
                 [[DOEnvironmentManager sharedManager] respring];
             }];
         }],
-        [UIAction actionWithTitle:DOLocalizedString(@"Menu_Reboot_Userspace_Title") image:[UIImage systemImageNamed:@"arrow.clockwise.circle" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]] identifier:@"reboot-userspace" handler:^(__kindof UIAction * _Nonnull action) {
+        [UIAction actionWithTitle:([DOEnvironmentManager sharedManager].isScreenWorkaroundEnabled ? @"Screen Restart (Experimental)" : DOLocalizedString(@"Menu_Reboot_Userspace_Title")) image:[UIImage systemImageNamed:@"arrow.clockwise.circle" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]] identifier:@"reboot-userspace" handler:^(__kindof UIAction * _Nonnull action) {
             [self fadeToBlack:^{
                 [[DOEnvironmentManager sharedManager] rebootUserspace];
             }];
@@ -279,6 +279,9 @@
 
 -(void)setupUpdateAvailable:(BOOL)environmentUpdate
 {
+    // An upstream update would discard this port; staged updates require launchd
+    // to restart and cannot be completed by the replacement-screen workaround.
+    if ([DOEnvironmentManager sharedManager].isScreenWorkaroundEnabled) return;
     if (self.jailbreakBtn.didExpand)
         return;
 

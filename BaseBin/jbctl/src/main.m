@@ -7,6 +7,40 @@
 #import <Foundation/Foundation.h>
 #import <CoreServices/LSApplicationProxy.h>
 #import <CoreServices/LSApplicationWorkspace.h>
+#import <cheapamine3.h>
+#import <sys/utsname.h>
+#import <sys/wait.h>
+#import <errno.h>
+
+static int screen_restart_service(const char *name, void *context)
+{
+	const char *killallPath = context;
+	pid_t pid = -1;
+	int error = exec_cmd_nowait(&pid, killallPath, "-9", name, NULL);
+	if (error != 0) return -error;
+	int status = 0;
+	while (waitpid(pid, &status, 0) < 0) {
+		if (errno != EINTR) return -errno;
+	}
+	if (!WIFEXITED(status)) return -EINTR;
+	return WEXITSTATUS(status);
+}
+
+static int screen_restart(void)
+{
+	struct utsname device;
+	NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
+	if (uname(&device) != 0 || !cheapamine3_target(device.machine, version.majorVersion, version.minorVersion, version.patchVersion)) {
+		fprintf(stderr, "Screen restart is restricted to iPhone 8 Plus on iOS 16.7.10.\n");
+		return 64;
+	}
+	if (getuid() != 0 || !gSystemInfo.jailbreakInfo.rootPath) return 77;
+	const char *killallPath = JBROOT_PATH("/usr/bin/killall");
+	if (access(killallPath, X_OK) != 0) return 69;
+	int result = cheapamine3_restart(screen_restart_service, (void *)killallPath);
+	if (result != 0) fprintf(stderr, "Screen restart failed (%d); no userspace reboot attempted.\n", result);
+	return result == 0 ? 0 : 70;
+}
 
 int reboot3(uint64_t flags, ...);
 #define RB2_USERREBOOT (0x2000000000000000llu)
@@ -143,6 +177,9 @@ int main(int argc, char* argv[])
 	}
 	else if (!strcmp(cmd, "reboot_userspace")) {
 		return reboot3(RB2_USERREBOOT);
+	}
+	else if (!strcmp(cmd, "screen_restart")) {
+		return screen_restart();
 	}
 	else if (!strcmp(cmd, "respring")) {
 		const char *sbreloadPath = JBROOT_PATH("/usr/bin/sbreload");
