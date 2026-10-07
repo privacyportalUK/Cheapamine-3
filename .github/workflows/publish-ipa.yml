@@ -1,0 +1,51 @@
+name: Publish verified revision 2 IPA
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact revision 2 source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 649f8350b0b628f1bd85a87d83097f728c9e6386
+      - name: Download successful build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 37633477115 --repo "$GITHUB_REPOSITORY" --name Cheapamine3-iPhone8Plus-iOS16.7.10-experimental --dir "$RUNNER_TEMP/revision2"
+      - name: Verify artifact before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-screen-ipa.py "$RUNNER_TEMP/revision2/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa"
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          d = Path(os.environ['RUNNER_TEMP']) / 'revision2'
+          assert (d/'SOURCE_COMMIT.txt').read_text().strip() == '649f8350b0b628f1bd85a87d83097f728c9e6386'
+          p = d/'Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa'
+          expected = (d/'SHA256SUMS.txt').read_text().split()[0]
+          assert hashlib.sha256(p.read_bytes()).hexdigest() == expected
+          (d/'SHA256SUMS.txt').write_text(expected + '  ' + p.name + '\n')
+          print('Verified revision 2 IPA SHA-256:', expected)
+          PY
+      - name: Publish experimental IPA for direct download
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create 3.0.10-screen2 \
+            "$RUNNER_TEMP/revision2/Cheapamine3-3.0.10-screen2-iPhone8Plus-16.7.10.ipa" \
+            "$RUNNER_TEMP/revision2/SHA256SUMS.txt" \
+            "$RUNNER_TEMP/revision2/SOURCE_COMMIT.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 649f8350b0b628f1bd85a87d83097f728c9e6386 \
+            --prerelease \
+            --title 'Cheapamine 3 Test revision 2 (experimental)' \
+            --notes-file SCREEN-WORKAROUND.md
