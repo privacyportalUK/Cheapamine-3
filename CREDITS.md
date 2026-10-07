@@ -28,7 +28,9 @@ that any upstream author has reviewed or endorsed this fork.
   executables or claim authorship of either project.
 - **privacyportalUK:** integration, packaging and testing of this device-specific
   port. The device-tested R3 source
-  is commit `50d1ed7`; its full commit ID and build hashes accompany the release.
+  is commit `50d1ed7`; its full commit ID and build hashes accompany the retained
+  [R3 release](https://github.com/privacyportalUK/Cheapmine-3/releases/tag/package-r3-1).
+  R4 records its own compiled source commit and hashes in its release metadata.
 
 The winaviation Cheapamine fork was examined during investigation. R3 does not
 use its broad process-termination implementation and does not claim it as a code
@@ -93,7 +95,7 @@ Mountainstorm's CoreSymbolication headers, Apple/OpenBSM contributors, Niels
 Provos's tree code and Elias Limneos's classdump-dyld notice. The source history
 and file headers remain the authoritative record for those individual portions.
 
-## Exact dependency revisions used by R3
+## Exact dependency revisions retained from R3 in R4
 
 | Source dependency | Commit |
 | --- | --- |

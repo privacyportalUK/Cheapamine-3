@@ -9,7 +9,7 @@ contributors. Existing copyright notices and license texts are retained.
 
 ## Bundled package source
 
-The device-tested R3 archive contains these unchanged upstream packages:
+R4 retains these upstream package inputs from the device-tested R3 archive:
 
 | Package | Version | SHA-256 of bundled `.deb` | Source |
 | --- | --- | --- | --- |
@@ -55,6 +55,7 @@ This fork does not modify those package binaries.
   licenses. This file summarizes where the notices live; it does not replace
   any component's actual license.
 
-The tested IPA already contains the original app resource license files. Public
-release notes and source archives accompany it with these additional credits;
-the tested executable is not rebuilt merely to add release documentation.
+The R4 IPA contains the original app resource license files. Public release notes
+and source archives provide the additional credits and source references above.
+R4 was rebuilt from its recorded source commit and passed build and artifact
+verification; R4 hardware confirmation is pending.
