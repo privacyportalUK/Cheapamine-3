@@ -1,0 +1,503 @@
+diff --git a/Application/Dopamine/Info.plist b/Application/Dopamine/Info.plist
+index 2707834..d2c43a3 100644
+--- a/Application/Dopamine/Info.plist
++++ b/Application/Dopamine/Info.plist
+@@ -2,6 +2,8 @@
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
++	<key>CFBundleDisplayName</key>
++	<string>Cheapamine 3 Test</string>
+ 	<key>UIApplicationSceneManifest</key>
+ 	<dict>
+ 		<key>UIApplicationSupportsMultipleScenes</key>
+diff --git a/Application/Dopamine/Jailbreak/DOEnvironmentManager.h b/Application/Dopamine/Jailbreak/DOEnvironmentManager.h
+index 0d265bd..4796b4d 100644
+--- a/Application/Dopamine/Jailbreak/DOEnvironmentManager.h
++++ b/Application/Dopamine/Jailbreak/DOEnvironmentManager.h
+@@ -51,6 +51,7 @@ NS_ASSUME_NONNULL_BEGIN
+ - (void)runAsRoot:(void (^)(void))rootBlock;
+ 
+ - (void)respring;
++- (BOOL)isScreenWorkaroundEnabled;
+ - (void)rebootUserspace;
+ - (void)rebuildIconCache;
+ - (void)refreshJailbreakApps;
+diff --git a/Application/Dopamine/Jailbreak/DOEnvironmentManager.m b/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
+index cce0ca4..c48248a 100644
+--- a/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
++++ b/Application/Dopamine/Jailbreak/DOEnvironmentManager.m
+@@ -28,6 +28,7 @@
+ #import "DOPreferenceManager.h"
+ #import "NSData+Hex.h"
+ #import <LocalAuthentication/LocalAuthentication.h>
++#import <cheapamine3.h>
+ 
+ int reboot3(uint64_t flags, ...);
+ CFPropertyListRef MGCopyAnswer(CFStringRef);
+@@ -370,7 +371,7 @@ - (int)spawnJbctlAsRootWithArgs:(NSArray *)args
+ {
+     bool needsLegacySolution = false;
+     if (self.jailbrokenVersion) {
+-        needsLegacySolution = (strcmp(self.jailbrokenVersion.UTF8String, "3.0.5") < 0);
++        needsLegacySolution = ([self.jailbrokenVersion compare:@"3.0.5" options:NSNumericSearch] == NSOrderedAscending);
+     }
+ 
+     char **argBuf = malloc((args.count + 4) * sizeof(char *));
+@@ -407,7 +408,7 @@ - (int)spawnJbctlAsRootWithArgs:(NSArray *)args
+     [self runAsRoot:^{
+         [self runUnsandboxed:^{
+             r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
+-            if (needsLegacySolution) {
++            if (needsLegacySolution && r == 0 && pid > 0) {
+                 // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
+                 // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
+                 kill(pid, SIGCONT);
+@@ -434,6 +435,7 @@ - (int)spawnJbctlAsRootWithArgs:(NSArray *)args
+         close(waitPipe[1]);
+     }
+ 
++    if (r != 0 || pid <= 0) return r != 0 ? r : -1;
+     return cmd_wait_for_exit(pid);
+ }
+ 
+@@ -454,7 +456,24 @@ - (void)respring
+ 
+ - (void)rebootUserspace
+ {
+-    [self spawnJbctlAsRootWithArgs:@[@"reboot_userspace"]];
++    if (self.isScreenWorkaroundEnabled && ![self.jailbrokenVersion isEqualToString:@"3.0.10-screen1"]) {
++        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapamine 3 Test first. The active jailbreak has no screen-restart helper." debug:NO];
++        return;
++    }
++    // Keep Dopamine 3's --waitfor handoff: never restart services while the app
++    // still holds temporary root credentials or its unsandboxed label.
++    NSString *command = self.isScreenWorkaroundEnabled ? @"screen_restart" : @"reboot_userspace";
++    int status = [self spawnJbctlAsRootWithArgs:@[command]];
++    if (status != 0) {
++        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Restart failed (%d). Force-restart the phone before trying again.", status] debug:NO];
++    }
++}
++
++- (BOOL)isScreenWorkaroundEnabled
++{
++    struct utsname device;
++    NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
++    return uname(&device) == 0 && cheapamine3_target(device.machine, version.majorVersion, version.minorVersion, version.patchVersion);
+ }
+ 
+ - (void)rebuildIconCache
+@@ -508,6 +527,11 @@ - (void)changeMobilePassword:(NSString *)newPassword
+ 
+ - (NSError*)updateEnvironment
+ {
++    if (self.isScreenWorkaroundEnabled) {
++        // A staged update only completes after launchd restarts. A selective
++        // restart cannot substitute for that update transaction.
++        return [NSError errorWithDomain:@"Cheapamine3" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Restart the phone normally, install the new IPA, then jailbreak again. In-place updates require a userspace reboot and are unavailable in this experimental build."}];
++    }
+     NSString *newBasebinTarPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"basebin.tar"];
+     int result = jbclient_platform_stage_jailbreak_update(newBasebinTarPath.fileSystemRepresentation);
+     if (result == 0) {
+@@ -519,6 +543,10 @@ - (NSError*)updateEnvironment
+ 
+ - (void)updateJailbreakFromTIPA:(NSString *)tipaPath
+ {
++    if (self.isScreenWorkaroundEnabled) {
++        [[DOUIManager sharedInstance] sendLog:@"Restart normally and sideload the new IPA to update this experimental build." debug:NO];
++        return;
++    }
+     [self spawnJbctlAsRootWithArgs:@[@"update", @"tipa", tipaPath]];
+ }
+ 
+diff --git a/Application/Dopamine/Jailbreak/DOJailbreaker.m b/Application/Dopamine/Jailbreak/DOJailbreaker.m
+index 41cf8b6..14f375c 100644
+--- a/Application/Dopamine/Jailbreak/DOJailbreaker.m
++++ b/Application/Dopamine/Jailbreak/DOJailbreaker.m
+@@ -720,7 +720,8 @@ - (void)runWithError:(NSError **)errOut didRemoveJailbreak:(BOOL*)didRemove show
+ 
+ - (void)finalize
+ {
+-    [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Rebooting Userspace") debug:NO];
++    NSString *message = [DOEnvironmentManager sharedManager].isScreenWorkaroundEnabled ? @"Restarting services (experimental screen workaround)" : DOLocalizedString(@"Rebooting Userspace");
++    [[DOUIManager sharedInstance] sendLog:message debug:NO];
+     [[DOEnvironmentManager sharedManager] rebootUserspace];
+ }
+ 
+diff --git a/Application/Dopamine/UI/DOMainViewController.m b/Application/Dopamine/UI/DOMainViewController.m
+index 5ccc068..bb94800 100644
+--- a/Application/Dopamine/UI/DOMainViewController.m
++++ b/Application/Dopamine/UI/DOMainViewController.m
+@@ -96,7 +96,7 @@ -(void)setupStack
+                 [[DOEnvironmentManager sharedManager] respring];
+             }];
+         }],
+-        [UIAction actionWithTitle:DOLocalizedString(@"Menu_Reboot_Userspace_Title") image:[UIImage systemImageNamed:@"arrow.clockwise.circle" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]] identifier:@"reboot-userspace" handler:^(__kindof UIAction * _Nonnull action) {
++        [UIAction actionWithTitle:([DOEnvironmentManager sharedManager].isScreenWorkaroundEnabled ? @"Screen Restart (Experimental)" : DOLocalizedString(@"Menu_Reboot_Userspace_Title")) image:[UIImage systemImageNamed:@"arrow.clockwise.circle" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]] identifier:@"reboot-userspace" handler:^(__kindof UIAction * _Nonnull action) {
+             [self fadeToBlack:^{
+                 [[DOEnvironmentManager sharedManager] rebootUserspace];
+             }];
+@@ -279,6 +279,9 @@ - (void)startJailbreak
+ 
+ -(void)setupUpdateAvailable:(BOOL)environmentUpdate
+ {
++    // An upstream update would discard this port; staged updates require launchd
++    // to restart and cannot be completed by the replacement-screen workaround.
++    if ([DOEnvironmentManager sharedManager].isScreenWorkaroundEnabled) return;
+     if (self.jailbreakBtn.didExpand)
+         return;
+ 
+diff --git a/Application/Dopamine/UI/Settings/DOSettingsController.m b/Application/Dopamine/UI/Settings/DOSettingsController.m
+index b0ece9d..fe55654 100644
+--- a/Application/Dopamine/UI/Settings/DOSettingsController.m
++++ b/Application/Dopamine/UI/Settings/DOSettingsController.m
+@@ -472,7 +472,8 @@ - (void)setTweakInjectionEnabled:(id)value specifier:(PSSpecifier *)specifier
+     DOEnvironmentManager *envManager = [DOEnvironmentManager sharedManager];
+     if (envManager.isJailbroken) {
+         [[DOEnvironmentManager sharedManager] setTweakInjectionEnabled:((NSNumber *)value).boolValue];
+-        UIAlertController *userspaceRebootAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Title") message:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Body") preferredStyle:UIAlertControllerStyleAlert];
++        NSString *restartMessage = envManager.isScreenWorkaroundEnabled ? @"This experimental build restarts selected services to preserve touch on some replacement screens. Tweak injection may remain unchanged in other running services. A normal reboot followed by re-jailbreaking is recommended when changing this setting." : DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Body");
++        UIAlertController *userspaceRebootAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Title") message:restartMessage preferredStyle:UIAlertControllerStyleAlert];
+         UIAlertAction *rebootNowAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Alert_Tweak_Injection_Toggled_Reboot_Now") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+             [[DOEnvironmentManager sharedManager] rebootUserspace];
+         }];
+diff --git a/BaseBin/_external/basebin/.version b/BaseBin/_external/basebin/.version
+index f1cb5ae..2582126 100644
+--- a/BaseBin/_external/basebin/.version
++++ b/BaseBin/_external/basebin/.version
+@@ -1 +1 @@
+-3.0.10
+\ No newline at end of file
++3.0.10-screen1
+diff --git a/BaseBin/_external/include/cheapamine3.h b/BaseBin/_external/include/cheapamine3.h
+new file mode 100644
+index 0000000..d9af4d0
+--- /dev/null
++++ b/BaseBin/_external/include/cheapamine3.h
+@@ -0,0 +1,33 @@
++/* Experimental port of Cheapamine's selective restart to Dopamine 3.0.10.
++ * Upstream: https://github.com/wumbomumbo/Cheapamine (MIT).
++ * Only the requested iPhone 8 Plus / iOS 16.7.10 combination is enabled.
++ */
++#ifndef CHEAPAMINE3_H
++#define CHEAPAMINE3_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <string.h>
++
++static inline bool cheapamine3_target(const char *machine, long major, long minor, long patch)
++{
++    return machine && (!strcmp(machine, "iPhone10,2") || !strcmp(machine, "iPhone10,5"))
++        && major == 16 && minor == 7 && patch == 10;
++}
++
++/* The callback returns a decoded process exit code, or a negative launch error.
++ * killall returns 1 when an optional service is absent. The UI service must exist.
++ * Restart backboardd last: it terminates the app requesting this operation.
++ * Do not add launchd, SpringBoard-wide reboot commands, or a full reboot fallback.
++ */
++static inline int cheapamine3_restart(int (*restart)(const char *, void *), void *context)
++{
++    const char *services[] = { "mediaserverd", "installd", "userd", "networkd", "backboardd" };
++    for (size_t i = 0; i < sizeof(services) / sizeof(services[0]); i++) {
++        int result = restart(services[i], context);
++        if (result != 0 && !(i < 4 && result == 1)) return result;
++    }
++    return 0;
++}
++
++#endif
+diff --git a/BaseBin/jbctl/src/main.m b/BaseBin/jbctl/src/main.m
+index 175af15..f576093 100644
+--- a/BaseBin/jbctl/src/main.m
++++ b/BaseBin/jbctl/src/main.m
+@@ -7,6 +7,40 @@
+ #import <Foundation/Foundation.h>
+ #import <CoreServices/LSApplicationProxy.h>
+ #import <CoreServices/LSApplicationWorkspace.h>
++#import <cheapamine3.h>
++#import <sys/utsname.h>
++#import <sys/wait.h>
++#import <errno.h>
++
++static int screen_restart_service(const char *name, void *context)
++{
++	const char *killallPath = context;
++	pid_t pid = -1;
++	int error = exec_cmd_nowait(&pid, killallPath, "-9", name, NULL);
++	if (error != 0) return -error;
++	int status = 0;
++	while (waitpid(pid, &status, 0) < 0) {
++		if (errno != EINTR) return -errno;
++	}
++	if (!WIFEXITED(status)) return -EINTR;
++	return WEXITSTATUS(status);
++}
++
++static int screen_restart(void)
++{
++	struct utsname device;
++	NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
++	if (uname(&device) != 0 || !cheapamine3_target(device.machine, version.majorVersion, version.minorVersion, version.patchVersion)) {
++		fprintf(stderr, "Screen restart is restricted to iPhone 8 Plus on iOS 16.7.10.\n");
++		return 64;
++	}
++	if (getuid() != 0 || !gSystemInfo.jailbreakInfo.rootPath) return 77;
++	const char *killallPath = JBROOT_PATH("/usr/bin/killall");
++	if (access(killallPath, X_OK) != 0) return 69;
++	int result = cheapamine3_restart(screen_restart_service, (void *)killallPath);
++	if (result != 0) fprintf(stderr, "Screen restart failed (%d); no userspace reboot attempted.\n", result);
++	return result == 0 ? 0 : 70;
++}
+ 
+ int reboot3(uint64_t flags, ...);
+ #define RB2_USERREBOOT (0x2000000000000000llu)
+@@ -144,6 +178,9 @@ int main(int argc, char* argv[])
+ 	else if (!strcmp(cmd, "reboot_userspace")) {
+ 		return reboot3(RB2_USERREBOOT);
+ 	}
++	else if (!strcmp(cmd, "screen_restart")) {
++		return screen_restart();
++	}
+ 	else if (!strcmp(cmd, "respring")) {
+ 		const char *sbreloadPath = JBROOT_PATH("/usr/bin/sbreload");
+ 		if (execve(sbreloadPath, (char *[]){ (char *)sbreloadPath, NULL }, environ) != 0) {
+diff --git a/README.md b/README.md
+index b6fea8a..f44ad6e 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,12 @@
+ <img src="https://github.com/opa334/Dopamine/assets/52459150/ed04dd3e-d879-456d-9aa3-d4ed44819c7e" width="64" />
+ 
+-# Dopamine
++# Cheapamine 3 Test
++
++Unofficial, experimental Dopamine 3.0.10 port of Cheapamine's replacement-screen
++restart workaround, targeting **iPhone 8 Plus on iOS 16.7.10**. Hardware testing
++is required. See [installation, limitations and build instructions](SCREEN-WORKAROUND.md).
++
++## Upstream Dopamine
+ 
+ A rootless semi-untethered jailbreak for iOS 15.0 - 17.3.1 (arm64e), iOS 15.0 - 18.7.1, 26.0 - 26.0.1 (A12/A13) and iOS 15.0 - 18.7.1 (arm64). More details will follow here soon.
+ 
+diff --git a/SCREEN-WORKAROUND.md b/SCREEN-WORKAROUND.md
+new file mode 100644
+index 0000000..f9b8407
+--- /dev/null
++++ b/SCREEN-WORKAROUND.md
+@@ -0,0 +1,79 @@
++# Cheapamine 3 Test — iPhone 8 Plus / iOS 16.7.10
++
++Experimental port of Cheapamine's selective service restart to Dopamine 3.0.10.
++This is an unofficial test build. A successful compile does not establish that
++the touchscreen works or that the jailbreak remains stable on an actual phone.
++
++## Source and changes
++
++- Dopamine base: `1a54e76d515ff5916b64e44d6afbb57d2bc89ee9` (tag `3.0.10`).
++- Cheapamine reference: `wumbomumbo/Cheapamine`, branch `2.x`; the five-service
++  restart is adapted from `DOEnvironmentManager` rather than merging old exploits.
++- Applies only to `iPhone10,2` / `iPhone10,5`, running exactly iOS `16.7.10`.
++- Retains Dopamine 3's exploitation, bootstrap, cleanup, and protection code.
++- The app's userspace-reboot requests instead run a `jbctl screen_restart`
++  helper. It restarts mediaserverd, installd, userd, networkd, then backboardd.
++  Missing optional services are tolerated; other failures stop the sequence.
++  There is no automatic fallback to a full userspace reboot.
++- Keeps the app's root/sandbox cleanup handshake before restarting services.
++  Version comparison uses numeric ordering so `3.0.10` is newer than `3.0.5`.
++- Disables app in-place updates on the target device: those require launchd to
++  restart and cannot be completed by a selective restart. Update by a normal
++  reboot followed by sideloading and re-jailbreaking.
++- The `.version` marker is `3.0.10-screen1`, and the app is labelled
++  `Cheapamine 3 Test`. The upstream app identifier is retained for compatibility.
++
++## Installation and first test
++
++1. Force-restart normally: quickly press Volume Up, quickly press Volume Down,
++   then hold the Side button until the Apple logo appears. Verify touch works
++   before opening the jailbreak app.
++2. Use your sideloader to sign and install the generated `.ipa`. It is ad-hoc
++   signed for packaging, not signed with your Apple account. No signing keys or
++   Apple credentials belong in this repository or its build workflow.
++3. On iOS 16, enable Developer Mode if the sideloader requires it. Launch
++   `Cheapamine 3 Test` and press Jailbreak. Keep the default exploit selection.
++4. Test touch at the lock screen and home screen, open Sileo, then lock/unlock
++   several times. If Sileo is missing, try Settings → Refresh Jailbreak Apps.
++5. If touch fails, force-restart again and leave the device unjailbroken. Record
++   whether the display is black or visible, and the last on-screen jailbreak log.
++
++Use the modern Impactor app if that is your existing sideloader. Legacy Cydia
++Impactor has different account requirements. Neither is included in this build.
++
++## Known limits
++
++This changes the restart path, not the replacement display's firmware. It is
++not a confirmed repair for this particular phone. Selective restart leaves some
++existing services uninjected. Third-party launch daemons are not automatically
++loaded by the normal full-userspace-reboot path, because that path is skipped.
++The upstream source explicitly warns of possible hangs when manually loading
++those daemons before the first full userspace reboot, so this port does not
++enable that commented-out code. System-wide tweaks and daemon-dependent packages
++may therefore be incomplete. Watchdog recovery, external package managers and
++command-line tools can still request a genuine userspace reboot; those paths are
++not replaced by this app workaround and may reproduce the touchscreen problem.
++
++## Build
++
++The GitHub workflow applies the reviewed `cheapamine3.patch` to the fork,
++commits the source changes, and builds on a macOS runner with full Xcode.
++It uploads an IPA, SHA-256 checksum, source commit and this document as artifacts.
++Local builds require full Xcode with the iPhoneOS SDK, Theos with iPhoneOS16.5.sdk,
++GNU make, ldid, trustcache, dpkg-deb, libarchive headers, zstd, and the pinned
++recursive submodules. Run `bash scripts/build-screen-ipa.sh`.
++
++Host tests (`bash scripts/test-screen-restart.sh`) check target selection,
++restart ordering, absent services and failure propagation with simulated
++callbacks. They never signal any processes. Packaging validation checks the
++IPA's app metadata, bootstrap resources and the modified jailbreak helper.
++
++## Attribution
++
++Dopamine: https://github.com/opa334/Dopamine
++
++Cheapamine: https://github.com/wumbomumbo/Cheapamine
++
++The upstream MIT license is retained in `LICENSE.md`. Credits remain with
++opa334, ElleKit's contributors and Cheapamine's authors. This port is not an
++official release of either project.
+diff --git a/scripts/build-screen-ipa.sh b/scripts/build-screen-ipa.sh
+new file mode 100644
+index 0000000..5bf56f1
+--- /dev/null
++++ b/scripts/build-screen-ipa.sh
+@@ -0,0 +1,26 @@
++#!/bin/bash
++set -euo pipefail
++cd "$(dirname "$0")/.."
++
++xcrun --sdk iphoneos --show-sdk-path
++for tool in gmake ldid trustcache dpkg-deb; do
++  command -v "$tool" >/dev/null || { echo "Missing build tool: $tool" >&2; exit 1; }
++done
++: "${THEOS:?Set THEOS to a Theos installation with iPhoneOS16.5.sdk}"
++
++bash scripts/test-screen-restart.sh
++git submodule update --init --recursive
++(
++  cd Application/Dopamine/Resources
++  curl -fL --retry 3 https://apt.procurs.us/bootstraps/1800/bootstrap-iphoneos-arm64.tar.zst -o bootstrap_1800.tar.zst
++  curl -fL --retry 3 https://apt.procurs.us/bootstraps/1900/bootstrap-iphoneos-arm64.tar.zst -o bootstrap_1900.tar.zst
++  zstd -t bootstrap_1800.tar.zst bootstrap_1900.tar.zst
++)
++gmake -j2 NIGHTLY=1
++mkdir -p .build/artifacts
++cp Application/Dopamine.ipa .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
++python3 scripts/verify-screen-ipa.py .build/artifacts/Cheapamine3-3.0.10-screen1-iPhone8Plus-16.7.10.ipa
++shasum -a 256 .build/artifacts/*.ipa > .build/artifacts/SHA256SUMS.txt
++git rev-parse HEAD > .build/artifacts/SOURCE_COMMIT.txt
++git submodule status --recursive > .build/artifacts/SUBMODULES.txt
++cp SCREEN-WORKAROUND.md .build/artifacts/READ-ME-FIRST.md
+diff --git a/scripts/test-screen-restart.sh b/scripts/test-screen-restart.sh
+new file mode 100644
+index 0000000..6f47093
+--- /dev/null
++++ b/scripts/test-screen-restart.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++set -euo pipefail
++cd "$(dirname "$0")/.."
++mkdir -p .build/tests
++clang -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
++  tests/screen_restart_test.c -o .build/tests/screen_restart_test
++.build/tests/screen_restart_test
+diff --git a/scripts/verify-screen-ipa.py b/scripts/verify-screen-ipa.py
+new file mode 100644
+index 0000000..88d2b8c
+--- /dev/null
++++ b/scripts/verify-screen-ipa.py
+@@ -0,0 +1,27 @@
++#!/usr/bin/env python3
++"""Validate packaging; this cannot verify touch, exploitation, or device boot."""
++import io
++import plistlib
++import sys
++import tarfile
++import zipfile
++
++with zipfile.ZipFile(sys.argv[1]) as ipa:
++    assert ipa.testzip() is None, 'Damaged IPA archive'
++    prefix = 'Payload/Dopamine.app/'
++    info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
++    assert info['CFBundleDisplayName'] == 'Cheapamine 3 Test'
++    assert info['CFBundleShortVersionString'] == '3.0.10'
++    assert ipa.read(prefix + info['CFBundleExecutable'])[:4] in (
++        b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca'
++    ), 'Missing Mach-O app executable'
++    for resource in ['basebin.tc', 'bootstrap_1800.tar.zst', 'bootstrap_1900.tar.zst']:
++        assert ipa.getinfo(prefix + resource).file_size > 0, resource
++    with tarfile.open(fileobj=io.BytesIO(ipa.read(prefix + 'basebin.tar'))) as basebin:
++        members = {m.name.removeprefix('./'): m for m in basebin.getmembers()}
++        assert basebin.extractfile(members['basebin/.version']).read().strip() == b'3.0.10-screen1'
++        helper = basebin.extractfile(members['basebin/jbctl']).read()
++        assert b'screen_restart\0' in helper, 'IPA contains unmodified jbctl'
++        assert b'iPhone10,2\0' in helper and b'iPhone10,5\0' in helper
++        assert members['basebin/jbctl'].mode & 0o111, 'jbctl is not executable'
++print('IPA packaging checks passed. Device testing is still required.')
+diff --git a/tests/screen_restart_test.c b/tests/screen_restart_test.c
+new file mode 100644
+index 0000000..ea5641a
+--- /dev/null
++++ b/tests/screen_restart_test.c
+@@ -0,0 +1,51 @@
++#include <assert.h>
++#include <errno.h>
++#include <stdio.h>
++#include "../BaseBin/_external/include/cheapamine3.h"
++
++struct simulation {
++    const char *calls[5];
++    int count;
++    int failure_at;
++    int result;
++};
++
++static int restart(const char *service, void *context)
++{
++    struct simulation *state = context;
++    assert(state->count < 5);
++    int index = state->count++;
++    state->calls[index] = service;
++    assert(strcmp(service, "launchd") != 0);
++    return index == state->failure_at ? state->result : 0;
++}
++
++int main(void)
++{
++    assert(cheapamine3_target("iPhone10,2", 16, 7, 10));
++    assert(cheapamine3_target("iPhone10,5", 16, 7, 10));
++    assert(!cheapamine3_target("iPhone10,1", 16, 7, 10));
++    assert(!cheapamine3_target("iPhone11,8", 16, 7, 10));
++    assert(!cheapamine3_target(NULL, 16, 7, 10));
++    assert(!cheapamine3_target("iPhone10,2", 16, 7, 9));
++    assert(!cheapamine3_target("iPhone10,2", 16, 7, 11));
++    assert(!cheapamine3_target("iPhone10,2", 17, 7, 10));
++
++    struct simulation success = {.failure_at = -1};
++    assert(cheapamine3_restart(restart, &success) == 0);
++    assert(success.count == 5);
++    assert(strcmp(success.calls[4], "backboardd") == 0);
++    for (int i = 0; i < 4; i++) {
++        assert(strcmp(success.calls[i], "backboardd") != 0);
++        struct simulation missing = {.failure_at = i, .result = 1};
++        assert(cheapamine3_restart(restart, &missing) == 0);
++        assert(missing.count == 5);
++        struct simulation failed = {.failure_at = i, .result = -EACCES};
++        assert(cheapamine3_restart(restart, &failed) == -EACCES);
++        assert(failed.count == i + 1);
++    }
++    struct simulation no_ui = {.failure_at = 4, .result = 1};
++    assert(cheapamine3_restart(restart, &no_ui) == 1);
++    puts("Screen restart policy tests passed; no device processes were touched.");
++    return 0;
++}
