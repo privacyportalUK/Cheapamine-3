@@ -56,11 +56,11 @@ not replaced by this app workaround and may reproduce the touchscreen problem.
 
 ## Build
 
-The GitHub workflow applies the reviewed `cheapamine3.patch` to the fork,
-commits the source changes, and builds on a macOS runner with full Xcode.
+The GitHub workflow builds the committed source on a macOS runner with full Xcode.
+The root `cheapamine3.patch` records the initial port; later fixes are in Git history.
 It uploads an IPA, SHA-256 checksum, source commit and this document as artifacts.
 Local builds require full Xcode with the iPhoneOS SDK, Theos with iPhoneOS16.5.sdk,
-GNU make, ldid, trustcache, dpkg-deb, libarchive headers, zstd, and the pinned
+GNU make, Procursus ldid, trustcache, dpkg-deb, libarchive headers, zstd, and the pinned
 recursive submodules. Run `bash scripts/build-screen-ipa.sh`.
 
 Host tests (`bash scripts/test-screen-restart.sh`) check target selection,
