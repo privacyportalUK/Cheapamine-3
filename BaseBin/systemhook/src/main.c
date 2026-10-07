@@ -1,4 +1,6 @@
 #include "common/common.h"
+#include "package_restart.h"
+#include <crt_externs.h>
 
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
@@ -449,6 +451,12 @@ __attribute__((constructor)) static void initializer(void)
 #endif
 
 	if (load_executable_path() == 0) {
+		int routeError = package_restart_route(gExecutablePath, JB_RootPath, *_NSGetArgc(), *_NSGetArgv(), *_NSGetEnviron());
+		if (routeError != 0) {
+			dprintf(STDERR_FILENO, "Cheapamine package restart failed: %s (%d); full userspace reboot was not attempted.\n", strerror(routeError), routeError);
+			_exit(70);
+		}
+
 		// Load rootlesshooks / watchdoghook when neccessary
 		if (!strcmp(gExecutablePath, "/usr/sbin/cfprefsd") ||
 			!strcmp(gExecutablePath, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") ||

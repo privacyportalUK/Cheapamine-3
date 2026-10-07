@@ -3,6 +3,8 @@
 
 #include <libjailbreak/codesign.h>
 #include <libjailbreak/libjailbreak.h>
+#include <cheapamine3_runtime.h>
+#include <errno.h>
 
 extern void systemwide_domain_set_enabled(bool enabled);
 
@@ -24,6 +26,9 @@ int platform_set_process_debugged(uint64_t pid, bool fullyDebugged)
 
 static int platform_stage_jailbreak_update(const char *updateTar)
 {
+	// A compatibility restart retains this launchd and cannot consume a staged
+	// basebin update. Reject before staging rather than reporting completion.
+	if (cheapamine3_target_runtime()) return ENOTSUP;
 	if (!access(updateTar, F_OK)) {
 		setenv("STAGED_JAILBREAK_UPDATE", updateTar, 1);
 		return 0;

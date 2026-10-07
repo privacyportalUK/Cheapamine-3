@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "project": "Zebra",
+  "version": "1.1.37",
+  "archive_name": "Zebra-1.1.37-source-with-dependencies.zip",
+  "entries": [
+    {
+      "name": "Zebra",
+      "source": "https://github.com/zbrateam/Zebra",
+      "commit": "61ba43b5d3ded7b7b4fd922e27b80c0124964243",
+      "url": "https://codeload.github.com/zbrateam/Zebra/zip/61ba43b5d3ded7b7b4fd922e27b80c0124964243",
+      "archive": "Zebra-61ba43b5d3ded7b7b4fd922e27b80c0124964243.zip",
+      "sha256": "8a9601c56ceffcdec3128cd427da51e7e8bc3dc1fd311fcca1242808974dbd2b",
+      "role": "Zebra source, build scripts and lockfile"
+    },
+    {
+      "name": "flex",
+      "source": "https://github.com/FLEXTool/FLEX.git",
+      "commit": "e0acf59d06d498041f65bbea1e5914b6e4b39733",
+      "archive": "flex-e0acf59d06d498041f65bbea1e5914b6e4b39733.zip",
+      "sha256": "1bc674b7c74e2bbe09792f535f10ba9a9701255954fb665aa6260f2f1e184788",
+      "url": "https://codeload.github.com/FLEXTool/FLEX/zip/e0acf59d06d498041f65bbea1e5914b6e4b39733",
+      "role": "Swift package dependency pinned by Zebra Package.resolved"
+    },
+    {
+      "name": "lnpopupcontroller",
+      "source": "https://github.com/zbrateam/LNPopupController.git",
+      "commit": "6264d7c5fe562703d3425e83a0dff2d2b481d9b4",
+      "archive": "lnpopupcontroller-6264d7c5fe562703d3425e83a0dff2d2b481d9b4.zip",
+      "sha256": "08c99a414220bac2cf1c11c7424f3acd22c5b49298b5dfb0b40cbae6b8e82ec7",
+      "url": "https://codeload.github.com/zbrateam/LNPopupController/zip/6264d7c5fe562703d3425e83a0dff2d2b481d9b4",
+      "role": "Swift package dependency pinned by Zebra Package.resolved"
+    },
+    {
+      "name": "sdwebimage",
+      "source": "https://github.com/SDWebImage/SDWebImage",
+      "commit": "be0bcd7823ce56629948491f2eaeaa19979514f7",
+      "archive": "sdwebimage-be0bcd7823ce56629948491f2eaeaa19979514f7.zip",
+      "sha256": "e4854710d090cf5a659ea047f51381ee2cb4313d159626593570106dd389f9ed",
+      "url": "https://codeload.github.com/SDWebImage/SDWebImage/zip/be0bcd7823ce56629948491f2eaeaa19979514f7",
+      "role": "Swift package dependency pinned by Zebra Package.resolved"
+    },
+    {
+      "name": "sentry-cocoa",
+      "source": "https://github.com/zbrateam/sentry-cocoa.git",
+      "commit": "4cce5f0d4d0194951c3789ee7f53ec7fd40cefdd",
+      "archive": "sentry-cocoa-4cce5f0d4d0194951c3789ee7f53ec7fd40cefdd.zip",
+      "sha256": "ff1e19ac5d168d1f89f165e8987728a56c68450e51c0e276336a7780a2729f4b",
+      "url": "https://codeload.github.com/zbrateam/sentry-cocoa/zip/4cce5f0d4d0194951c3789ee7f53ec7fd40cefdd",
+      "role": "Swift package dependency pinned by Zebra Package.resolved"
+    }
+  ]
+}

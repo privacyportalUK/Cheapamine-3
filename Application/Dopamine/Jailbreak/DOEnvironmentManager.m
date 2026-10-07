@@ -12,7 +12,11 @@
 #import <sys/mount.h>
 #import <sys/utsname.h>
 #import <sys/stat.h>
+#import <sys/wait.h>
 #import <unistd.h>
+#import <signal.h>
+#import <fcntl.h>
+#import <errno.h>
 #import <mach-o/dyld.h>
 #import <libgrabkernel2/libgrabkernel2.h>
 #import <libjailbreak/info.h>
@@ -369,74 +373,126 @@ extern char **environ;
 
 - (int)spawnJbctlAsRootWithArgs:(NSArray *)args
 {
-    bool needsLegacySolution = false;
-    if (self.jailbrokenVersion) {
-        needsLegacySolution = ([self.jailbrokenVersion compare:@"3.0.5" options:NSNumericSearch] == NSOrderedAscending);
-    }
+    // Compare version components numerically: 3.0.10 is newer than 3.0.5.
+    NSString *version = self.jailbrokenVersion;
+    BOOL needsLegacySolution = version && [version compare:@"3.0.5" options:NSNumericSearch] == NSOrderedAscending;
+    NSUInteger capacity = args.count + 4;
+    char **argBuf = calloc(capacity, sizeof(char *));
+    if (!argBuf) return ENOMEM;
 
-    char **argBuf = malloc((args.count + 4) * sizeof(char *));
-    argBuf[0] = strdup(JBROOT_PATH("/basebin/jbctl"));
-    int i = 1;
-    for (NSString *arg in args) {
-        argBuf[i++] = strdup(arg.UTF8String);
-    }
-
+    NSUInteger count = 0;
+    argBuf[count++] = strdup(JBROOT_PATH("/basebin/jbctl"));
+    for (NSString *arg in args) argBuf[count++] = strdup(arg.UTF8String);
     if (!needsLegacySolution) {
-        argBuf[i++] = strdup("--waitfor");
-        argBuf[i++] = strdup("3");
+        argBuf[count++] = strdup("--waitfor");
+        argBuf[count++] = strdup("3");
     }
-    argBuf[i++] = NULL;
-    
-    posix_spawn_file_actions_t act = NULL;
-	posix_spawn_file_actions_init(&act);
-    posix_spawnattr_t attr = NULL;
-    posix_spawnattr_init(&attr);
-     
-    int waitPipe[2];
-    
-    if (!needsLegacySolution) {
-        pipe(waitPipe);
-        posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
-    }
-    else {
-        posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
+    for (NSUInteger i = 0; i < count; i++) {
+        if (!argBuf[i]) {
+            for (NSUInteger j = 0; j < count; j++) free(argBuf[j]);
+            free(argBuf);
+            return ENOMEM;
+        }
     }
 
-    __block int pid = 0;
-    __block int r = -1;
-
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
-            if (needsLegacySolution && r == 0 && pid > 0) {
-                // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
-                // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
-                kill(pid, SIGCONT);
+    posix_spawn_file_actions_t act;
+    posix_spawnattr_t attr;
+    BOOL actionsReady = NO, attributesReady = NO;
+    int waitPipe[2] = {-1, -1};
+    __block pid_t pid = -1;
+    __block int result = EPERM;
+    do {
+        result = posix_spawn_file_actions_init(&act);
+        if (result) break;
+        actionsReady = YES;
+        result = posix_spawnattr_init(&attr);
+        if (result) break;
+        attributesReady = YES;
+        if (!needsLegacySolution) {
+            if (pipe(waitPipe) != 0) { result = errno; break; }
+            // Close the writer before dup2: the original writer can itself be fd 3.
+            result = posix_spawn_file_actions_addclose(&act, waitPipe[1]);
+            if (result) break;
+            result = posix_spawn_file_actions_adddup2(&act, waitPipe[0], 3);
+            if (result) break;
+            if (waitPipe[0] != 3) {
+                result = posix_spawn_file_actions_addclose(&act, waitPipe[0]);
+                if (result) break;
             }
-        }];
-        // We *NEED* to leave this block on iOS 17+ to avoid a panic, --waitfor ensures this always happens
-    }];
-
-    posix_spawnattr_destroy(&attr);
-    posix_spawn_file_actions_destroy(&act);
-    for (int y = 0; y < i; y++) {
-        free(argBuf[y]);
-    }
-    free(argBuf);
-
-    if (!needsLegacySolution) {
-        if (r == 0) {
-            // We left the root/unsandbox block, now resume jbctl by writing to pipe
-            char w = 'w';
-            write(waitPipe[1], &w, sizeof(w));
+        }
+        else {
+            result = posix_spawnattr_setflags(&attr, POSIX_SPAWN_START_SUSPENDED);
+            if (result) break;
         }
 
-        close(waitPipe[0]);
-        close(waitPipe[1]);
-    }
+        // This handoff needs checked cleanup, unlike the general void wrappers.
+        // The helper must not receive permission to restart while a temporary
+        // root credential or sandbox-label restoration has failed.
+        uid_t originalUser = geteuid();
+        gid_t originalGroup = getegid();
+        BOOL dropRoot = NO, restoreLabel = NO;
+        uint64_t originalLabel = 0;
+        result = 0;
+        if (originalUser != 0 || originalGroup != 0) {
+            if (!self.isJailbroken) result = EPERM;
+            else {
+                int rootError = jbclient_dopamine_get_root();
+                // A lost reply may still have changed credentials; clean up then too.
+                dropRoot = rootError == 0 || geteuid() != originalUser || getegid() != originalGroup;
+                if (rootError != 0 || geteuid() != 0 || getegid() != 0) result = EPERM;
+            }
+        }
+        if (result == 0 && !self.isInstalledThroughTrollStore && self.isJailbroken) {
+            int labelError = jbclient_root_set_mac_label(1, -1, &originalLabel);
+            if (labelError != 0) result = EACCES;
+            else restoreLabel = YES;
+        }
+        if (result == 0) {
+            pid_t child = -1;
+            result = posix_spawn(&child, argBuf[0], &act, &attr, argBuf, environ);
+            if (result == 0 && child > 0) pid = child;
+            else if (result == 0) result = ECHILD;
+            if (result == 0 && needsLegacySolution) {
+                // Older helpers have no cleanup-token reader and need root to resume.
+                if (kill(pid, SIGCONT) != 0) result = errno;
+            }
+        }
+        if (restoreLabel && jbclient_root_set_mac_label(1, originalLabel, NULL) != 0) {
+            result = EACCES;
+            if (pid > 0) kill(pid, SIGKILL); // Still root here; stop the waiting child.
+        }
+        if (dropRoot) {
+            int dropError = jbclient_dopamine_drop_root();
+            if (dropError != 0 || geteuid() != originalUser || getegid() != originalGroup)
+                result = EPERM;
+        }
+        // Only release a modern helper after both cleanup RPCs succeeded.
+        if (result == 0 && !needsLegacySolution) {
+            uint32_t ready = 1;
+            ssize_t written;
+            do { written = write(waitPipe[1], &ready, sizeof(ready)); }
+            while (written < 0 && errno == EINTR);
+            if (written != sizeof(ready)) result = written < 0 ? errno : EIO;
+        }
+    } while (0);
 
-    if (r != 0 || pid <= 0) return r != 0 ? r : -1;
-    return cmd_wait_for_exit(pid);
+    if (attributesReady) posix_spawnattr_destroy(&attr);
+    if (actionsReady) posix_spawn_file_actions_destroy(&act);
+    // Kill a successfully spawned child before EOF could release an older jbctl reader.
+    if (result != 0 && pid > 0) kill(pid, SIGKILL);
+    if (waitPipe[0] >= 0) close(waitPipe[0]);
+    if (waitPipe[1] >= 0) close(waitPipe[1]);
+    for (NSUInteger i = 0; i < count; i++) free(argBuf[i]);
+    free(argBuf);
+
+    if (pid <= 0) return result;
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
+    if (result != 0) return result;
+    if (waited < 0) return errno ? errno : ECHILD;
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : ECHILD;
 }
 
 - (int)runTrollStoreAction:(NSString *)action
@@ -457,15 +513,21 @@ extern char **environ;
 - (void)rebootUserspace
 {
     NSString *activeVersion = [self.jailbrokenVersion stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-s2"]) {
-        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapamine 3 Test first. The active jailbreak has no screen-restart helper." debug:NO];
+    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-s4"]) {
+        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapmine 3 R4 first. The active jailbreak has no screen-restart helper." debug:NO];
         return;
     }
     // Keep Dopamine 3's --waitfor handoff: never restart services while the app
     // still holds temporary root credentials or its unsandboxed label.
     NSString *command = self.isScreenWorkaroundEnabled ? @"screen_restart" : @"reboot_userspace";
     int status = [self spawnJbctlAsRootWithArgs:@[command]];
-    if (status != 0) {
+    if (status == 71) {
+        [[DOUIManager sharedInstance] sendLog:@"App registration failed. Services were not restarted; retry Refresh Jailbreak Apps." debug:NO];
+    }
+    else if (status == EPERM || status == EACCES) {
+        [[DOUIManager sharedInstance] sendLog:@"The restart helper could not acquire or restore privileges. Services were not restarted. Force-restart the phone before trying again." debug:NO];
+    }
+    else if (status != 0) {
         [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Restart failed (%d). Force-restart the phone before trying again.", status] debug:NO];
     }
 }

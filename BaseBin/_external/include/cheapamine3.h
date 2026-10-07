@@ -1,6 +1,9 @@
-/* Experimental port of Cheapamine's selective restart to Dopamine 3.0.10.
- * Upstream: https://github.com/wumbomumbo/Cheapamine (MIT).
- * Only the requested iPhone 8 Plus / iOS 16.7.10 combination is enabled.
+/* Selective-restart port based on wumbomumbo/Cheapamine (MIT),
+ * DOEnvironmentManager.m at b55979bdf4469ed2efc55bdafc3dc882d36dce61:
+ * https://github.com/wumbomumbo/Cheapamine
+ * Built on Dopamine 3.0.10 by Lars Froder (opa334) and contributors.
+ * This port preserves the five-service selection, moves backboardd last,
+ * and adds checked helper execution. See CREDITS.md and LICENSE.md.
  */
 #ifndef CHEAPAMINE3_H
 #define CHEAPAMINE3_H

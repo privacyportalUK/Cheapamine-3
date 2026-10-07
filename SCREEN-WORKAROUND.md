@@ -1,3 +1,5 @@
+> Historical revision 2 notes. For the current R3 candidate, see [PACKAGE-RESTART.md](PACKAGE-RESTART.md).
+
 # Cheapamine 3 Test — iPhone 8 Plus / iOS 16.7.10
 
 Experimental port of Cheapamine's selective service restart to Dopamine 3.0.10.

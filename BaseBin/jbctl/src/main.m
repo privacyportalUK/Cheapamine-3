@@ -1,3 +1,8 @@
+/* Dopamine jbctl by opa334 and contributors (MIT; see LICENSE.md).
+ * R3's restart coordinator adapts wumbomumbo/Cheapamine's service selection
+ * through cheapamine3.h. Version/target checks, serialization and tracing are
+ * additions in this fork. Source lineage and component notices: CREDITS.md.
+ */
 #import <libjailbreak/libjailbreak.h>
 #import <libjailbreak/jbclient_xpc.h>
 #import <libjailbreak/jbclient_mach.h>
@@ -8,43 +13,215 @@
 #import <CoreServices/LSApplicationProxy.h>
 #import <CoreServices/LSApplicationWorkspace.h>
 #import <cheapamine3.h>
+#include <cheapamine3_runtime.h>
 #import <sys/utsname.h>
 #import <sys/wait.h>
 #import <errno.h>
+#include <sys/sysctl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
+#include <sys/time.h>
+#include <time.h>
+#include <signal.h>
+
+struct restart_context {
+    const char *killallPath;
+    int trace;
+};
+
+static void restart_trace(int fd, const char *event, int result)
+{
+    if (fd < 0) return;
+    struct timeval now;
+    if (gettimeofday(&now, NULL) != 0) return;
+    dprintf(fd, "s4 time=%lld.%06d pid=%d event=%s result=%d\n",
+        (long long)now.tv_sec, (int)now.tv_usec, getpid(), event, result);
+}
+
+static int restart_trace_open(void)
+{
+    int fd = open("/var/mobile/Media/Cheapamine3-restart.txt",
+        O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0644);
+    if (fd < 0) return -1;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != 0 || st.st_nlink != 1 ||
+        (st.st_size > 65536 && ftruncate(fd, 0) != 0) || fchmod(fd, 0644) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static bool restart_version_matches(void)
+{
+    int fd = open(JBROOT_PATH("/basebin/.version"), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+    struct stat st;
+    char version[sizeof(CHEAPAMINE3_VERSION)] = {0};
+    bool valid = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
+        !(st.st_mode & 0022) && st.st_size == sizeof(CHEAPAMINE3_VERSION) - 1;
+    ssize_t count = -1;
+    if (valid) {
+        do { count = read(fd, version, sizeof(version)); } while (count < 0 && errno == EINTR);
+    }
+    close(fd);
+    return valid && count == sizeof(CHEAPAMINE3_VERSION) - 1 &&
+        memcmp(version, CHEAPAMINE3_VERSION, sizeof(CHEAPAMINE3_VERSION) - 1) == 0;
+}
 
 static int screen_restart_service(const char *name, void *context)
 {
-	const char *killallPath = context;
+	struct restart_context *restart = context;
+	const char *killallPath = restart->killallPath;
 	pid_t pid = -1;
 	int error = exec_cmd_nowait(&pid, killallPath, "-9", name, NULL);
-	if (error != 0) return -error;
+	if (error != 0 || pid <= 0) return error != 0 ? -error : -ECHILD;
 	int status = 0;
 	while (waitpid(pid, &status, 0) < 0) {
 		if (errno != EINTR) return -errno;
 	}
-	if (!WIFEXITED(status)) return -EINTR;
-	return WEXITSTATUS(status);
+	int result = WIFEXITED(status) ? WEXITSTATUS(status) : -EINTR;
+	restart_trace(restart->trace, name, result);
+	return result;
 }
 
-static int screen_restart(void)
+static uint64_t registration_now_ns(void)
 {
-	struct utsname device;
-	NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
-	if (uname(&device) != 0 || !cheapamine3_target(device.machine, version.majorVersion, version.minorVersion, version.patchVersion)) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+static int register_jailbreak_apps(struct restart_context *context)
+{
+    // Restore the uicache work normally performed by Dopamine's startup job.
+    // Do this in the post-cleanup helper before backboardd refreshes SpringBoard,
+    // so failure can be reported without killing the caller or changing services.
+    const char *uicache = JBROOT_PATH("/usr/bin/uicache");
+    if (access(uicache, X_OK) != 0) return errno ? -errno : -EACCES;
+    uint64_t start = registration_now_ns();
+    if (!start) return -EIO;
+    pid_t pid = -1;
+    int error = exec_cmd_nowait(&pid, uicache, "-a", NULL);
+    if (error != 0 || pid <= 1) return error != 0 ? (error > 0 ? -error : error) : -ECHILD;
+    restart_trace(context->trace, "uicache-started", 0);
+    const uint64_t deadline = start + 15000000000ULL;
+    int result = -ETIMEDOUT;
+    // Both an absolute deadline and iteration cap bound the wait, even if the
+    // clock fails. Synchronous system-call/scheduling latency is not controllable.
+    for (unsigned iteration = 0; iteration < 1500; iteration++) {
+        int status = 0;
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) return WIFEXITED(status) ? WEXITSTATUS(status) : -ECANCELED;
+        if (waited < 0 && errno != EINTR) return -errno;
+        uint64_t now = registration_now_ns();
+        if (!now) { result = -EIO; break; }
+        if (now >= deadline) break;
+        usleep(10000);
+    }
+    // This is our child, not a launchd-owned daemon. Stop only this uicache;
+    // never retry registration or fall back to a userspace reboot.
+    int stopResult = kill(pid, SIGKILL);
+    if (stopResult != 0 && errno != ESRCH)
+        restart_trace(context->trace, "uicache-stop-failed", errno);
+    // Reap without introducing an unbounded wait after timeout. If the kernel
+    // cannot complete exit promptly, jbctl exits and normal parent reaping applies.
+    for (unsigned iteration = 0; iteration < 25; iteration++) {
+        int status = 0;
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid || (waited < 0 && errno != EINTR)) break;
+        usleep(10000);
+    }
+    return result;
+}
+
+static int screen_restart(const char *request)
+{
+	if (!cheapamine3_target_runtime()) {
 		fprintf(stderr, "Screen restart is restricted to iPhone 8 Plus on iOS 16.7.10.\n");
 		return 64;
 	}
-	if (getuid() != 0 || !gSystemInfo.jailbreakInfo.rootPath) return 77;
+	if (getuid() != 0 || geteuid() != 0 || !gSystemInfo.jailbreakInfo.rootPath) return 77;
+	if (!restart_version_matches()) return 78;
+	if (getenv("STAGED_JAILBREAK_UPDATE") || getenv("JBUPDATE_NEW_VERSION")) return 78;
 	const char *killallPath = JBROOT_PATH("/usr/bin/killall");
 	if (access(killallPath, X_OK) != 0) return 69;
-	int result = cheapamine3_restart(screen_restart_service, (void *)killallPath);
+	int lock = open(JBROOT_PATH("/basebin/.restart.lock"), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (lock < 0) return 75;
+	struct stat lockStat;
+	if (fstat(lock, &lockStat) != 0 || !S_ISREG(lockStat.st_mode) || lockStat.st_uid != 0 ||
+	    lockStat.st_nlink != 1 || (lockStat.st_mode & 0022) || flock(lock, LOCK_EX | LOCK_NB) != 0) {
+		close(lock);
+		return 75;
+	}
+	struct restart_context context = {.killallPath = killallPath, .trace = restart_trace_open()};
+	restart_trace(context.trace, request, 0);
+	int result = 0;
+    bool registrationFailed = false;
+    if (!strcmp(request, "screen_restart")) {
+        result = register_jailbreak_apps(&context);
+        restart_trace(context.trace, "uicache-complete", result);
+        registrationFailed = result != 0;
+        if (registrationFailed)
+            fprintf(stderr, "Jailbreak app registration failed (%d); service restart was not attempted.\n", result);
+    }
+    if (result == 0) result = cheapamine3_restart(screen_restart_service, &context);
+	restart_trace(context.trace, "complete", result);
+	if (context.trace >= 0) close(context.trace);
+	close(lock);
 	if (result != 0) fprintf(stderr, "Screen restart failed (%d); no userspace reboot attempted.\n", result);
-	return result == 0 ? 0 : 70;
+	return registrationFailed ? 71 : (result == 0 ? 0 : 70);
 }
 
 int reboot3(uint64_t flags, ...);
 #define RB2_USERREBOOT (0x2000000000000000llu)
 extern char **environ;
+
+// Accept the legacy one-byte 'w' or the current uint32_t value 1.
+// EOF is cancellation, never permission to perform the requested action.
+static int wait_for_app_cleanup(const char *fdArgument)
+{
+    if (!fdArgument || !fdArgument[0]) return EINVAL;
+    for (const char *p = fdArgument; *p; p++) {
+        if (*p < '0' || *p > '9') return EINVAL;
+    }
+    errno = 0;
+    char *end = NULL;
+    long parsed = strtol(fdArgument, &end, 10);
+    if (errno == ERANGE || *end || parsed < 0 || parsed > INT_MAX) return EINVAL;
+    int fd = (int)parsed;
+    uint8_t token[sizeof(uint32_t)] = {0};
+    size_t received = 0, required = 1;
+    int result = 0;
+    while (received < required) {
+        ssize_t count = read(fd, token + received, required - received);
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            result = errno;
+            break;
+        }
+        if (count == 0) { result = ECANCELED; break; }
+        received += (size_t)count;
+        if (received == 1) {
+            if (token[0] == 'w') break;
+            if (token[0] != 1) { result = EINVAL; break; }
+            required = sizeof(token);
+        }
+    }
+    if (result == 0 && required == sizeof(token)) {
+        uint32_t value;
+        memcpy(&value, token, sizeof(value));
+        if (value != 1) result = EINVAL;
+    }
+    close(fd);
+    return result;
+}
 
 void print_usage(void)
 {
@@ -87,12 +264,11 @@ int main(int argc, char* argv[])
 
 	if (argc > 2) {
 		if (!strcmp(argv[argc-2], "--waitfor")) {
-			// When the Dopamine app spawns jbctl it needs to clean up it's own ucred before jbctl does the requested action
-			// For this it will attach a pipe fd and write to it once the cleanup is done, so we need to wait until that write happens
-			int fd = atoi(argv[argc-1]);
-			int r = 0;
-			read(fd, &r, sizeof(r));
-			close(fd);
+            int error = wait_for_app_cleanup(argv[argc-1]);
+            if (error != 0) {
+                fprintf(stderr, "jbctl: app cleanup handoff failed: %s\n", strerror(error));
+                return 1;
+            }
 		}
 	}
 
@@ -178,8 +354,8 @@ int main(int argc, char* argv[])
 	else if (!strcmp(cmd, "reboot_userspace")) {
 		return reboot3(RB2_USERREBOOT);
 	}
-	else if (!strcmp(cmd, "screen_restart")) {
-		return screen_restart();
+	else if (!strcmp(cmd, "screen_restart") || !strcmp(cmd, "package_restart")) {
+		return screen_restart(cmd);
 	}
 	else if (!strcmp(cmd, "respring")) {
 		const char *sbreloadPath = JBROOT_PATH("/usr/bin/sbreload");
@@ -192,6 +368,10 @@ int main(int argc, char* argv[])
 		return suc ? 0 : -1;
 	}
 	else if (!strcmp(cmd, "update")) {
+		if (cheapamine3_target_runtime()) {
+			fprintf(stderr, "This compatibility build updates after a full device restart and re-jailbreak; no live update was staged.\n");
+			return 78;
+		}
 		if (argc < 4) {
 			print_usage();
 			return 2;

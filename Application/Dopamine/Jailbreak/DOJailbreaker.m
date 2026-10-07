@@ -1,3 +1,4 @@
+#import <sys/sysctl.h>
 //
 //  Jailbreaker.m
 //  Dopamine
@@ -572,6 +573,16 @@ void *boomerang_server(struct boomerang_info *info)
 
 - (void)runWithError:(NSError **)errOut didRemoveJailbreak:(BOOL*)didRemove showLogs:(BOOL *)showLogs
 {
+    struct utsname target;
+    char build[64] = {0};
+    size_t buildLength = sizeof(build);
+    if (uname(&target) != 0 || sysctlbyname("kern.osversion", build, &buildLength, NULL, 0) != 0 ||
+        strcmp(target.machine, "iPhone10,5") != 0 || strcmp(build, "20H350") != 0) {
+        *errOut = [NSError errorWithDomain:JBErrorDomain code:1060 userInfo:@{
+            NSLocalizedDescriptionKey : @"Cheapmine 3 R4 supports only iPhone 8 Plus (iPhone10,5) on iOS 16.7.10 (20H350)."
+        }];
+        return;
+    }
     BOOL removeJailbreakEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"removeJailbreakEnabled" fallback:NO];
     BOOL tweaksEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"tweakInjectionEnabled" fallback:YES];
     BOOL idownloadEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"idownloadEnabled" fallback:NO];
