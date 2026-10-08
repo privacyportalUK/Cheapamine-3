@@ -1,7 +1,7 @@
 /* Dopamine jbctl by opa334 and contributors (MIT; see LICENSE.md).
  * R3's restart coordinator adapts wumbomumbo/Cheapamine's service selection
  * through cheapamine3.h. Version/target checks, serialization and tracing are
- * additions in this fork. Source lineage and component notices: CREDITS.md.
+ * additions in this fork. Original license: LICENSE.md; component notices remain in app resources.
  */
 #import <libjailbreak/libjailbreak.h>
 #import <libjailbreak/jbclient_xpc.h>

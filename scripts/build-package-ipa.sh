@@ -27,9 +27,7 @@ python3 scripts/verify-package-ipa.py "$ipa_path" "$(git rev-parse HEAD)" > .bui
   shasum -a 256 *.ipa > SHA256SUMS.txt
 )
 git rev-parse HEAD > .build/artifacts/SOURCE_COMMIT.txt
-git diff 1a54e76d515ff5916b64e44d6afbb57d2bc89ee9 HEAD > .build/artifacts/SOURCE_PATCH.diff
 git submodule status --recursive > .build/artifacts/SUBMODULES.txt
 shasum -a 256 Application/Dopamine/Resources/bootstrap_*.tar.zst > .build/artifacts/BOOTSTRAP_SHA256SUMS.txt
 xcodebuild -version > .build/artifacts/BUILD_TOOLS.txt
 clang --version >> .build/artifacts/BUILD_TOOLS.txt
-cp PACKAGE-RESTART.md .build/artifacts/READ-ME.md

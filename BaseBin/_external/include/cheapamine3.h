@@ -3,7 +3,7 @@
  * https://github.com/wumbomumbo/Cheapamine
  * Built on Dopamine 3.0.10 by Lars Froder (opa334) and contributors.
  * This port preserves the five-service selection, moves backboardd last,
- * and adds checked helper execution. See CREDITS.md and LICENSE.md.
+ * and adds checked helper execution. See LICENSE.md.
  */
 #ifndef CHEAPAMINE3_H
 #define CHEAPAMINE3_H

@@ -1,7 +1,8 @@
 /* R3 package-restart integration for Dopamine's systemhook (MIT).
  * The matched command is documented by Sileo's DownloadsTableViewController
  * and Procursus launchctl; their executables remain unchanged. This routing
- * implementation belongs to this fork. See CREDITS.md for upstream sources.
+ * implementation belongs to this fork. Upstream sources:
+ * https://github.com/Sileo/Sileo and https://github.com/ProcursusTeam/launchctl
  */
 #include "package_restart.h"
 #include <errno.h>

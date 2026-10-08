@@ -1,67 +1,109 @@
 #!/usr/bin/env python3
-"""Package a verified R4 build with its corresponding source and notices."""
-import hashlib, io, json, os, shutil, subprocess, sys, urllib.request, zipfile
+"""Package a verified R4 build as IPA, TIPA and a source ZIP."""
+import hashlib
+import json
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import zipfile
 
-ROOT=Path(__file__).resolve().parents[1]
-REPO='privacyportalUK/Cheapmine-3'
-PREFIX='Cheapmine-3-R4'
+ROOT = Path(__file__).resolve().parents[1]
+PREFIX = 'Cheapmine-3-R4'
+
 
 def git(*args):
-    return subprocess.check_output(['git',*args],cwd=ROOT).decode().strip()
+    return subprocess.check_output(['git', *args], cwd=ROOT).decode().strip()
 
-def fetch(url):
-    return urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Cheapmine-release'}),timeout=90).read()
 
-def sha(data): return hashlib.sha256(data).hexdigest()
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
 
 def source_zip(path):
-    files=subprocess.check_output(['git','ls-files','--recurse-submodules','-z'],cwd=ROOT).split(b'\0')
-    epoch=int(git('show','-s','--format=%ct','HEAD'))
-    import time
-    stamp=time.gmtime(max(epoch,315532800))[:6]
-    with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as out:
+    """Archive the clean tracked checkout, including initialized submodules."""
+    if git('status', '--porcelain', '--untracked-files=no'):
+        raise RuntimeError('Source checkout must have no tracked changes')
+    for line in git('submodule', 'status', '--recursive').splitlines():
+        if line.startswith(('-', '+', 'U')):
+            raise RuntimeError('Source submodules must match their recorded commits')
+    files = subprocess.check_output(
+        ['git', 'ls-files', '--recurse-submodules', '-z'], cwd=ROOT
+    ).split(b'\0')
+    epoch = int(git('show', '-s', '--format=%ct', 'HEAD'))
+    stamp = time.gmtime(max(epoch, 315532800))[:6]
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as out:
         for raw in sorted(set(files)):
-            if not raw: continue
-            name=os.fsdecode(raw); p=ROOT/name
-            if p.is_dir(): continue
-            if not p.exists() and not p.is_symlink(): raise RuntimeError('Missing source: '+name)
-            info=zipfile.ZipInfo(PREFIX+'/'+name,stamp)
-            info.compress_type=zipfile.ZIP_DEFLATED
-            info.external_attr=(p.lstat().st_mode & 0xffff)<<16
-            data=os.readlink(p).encode() if p.is_symlink() else p.read_bytes()
-            out.writestr(info,data)
+            if not raw:
+                continue
+            name = os.fsdecode(raw)
+            p = ROOT / name
+            if p.is_dir():
+                continue
+            if not p.exists() and not p.is_symlink():
+                raise RuntimeError('Missing source: ' + name)
+            info = zipfile.ZipInfo(PREFIX + '/' + name, stamp)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = (p.lstat().st_mode & 0xffff) << 16
+            data = os.readlink(p).encode() if p.is_symlink() else p.read_bytes()
+            out.writestr(info, data)
 
 
 def main():
     os.chdir(ROOT)
-    output=Path(sys.argv[1] if len(sys.argv)>1 else '.build/public-release').resolve()
-    output.mkdir(parents=True,exist_ok=True)
-    if git('status','--porcelain'): raise RuntimeError('Source checkout must be clean')
-    commit=git('rev-parse','HEAD')
-    artifacts=ROOT/'.build/artifacts'
-    ipa=(artifacts/'Cheapmine-3-R4-iPhone8Plus-16.7.10.ipa').read_bytes()
-    for suffix in ('ipa','tipa'): (output/(PREFIX+'.'+suffix)).write_bytes(ipa)
-    verification=subprocess.check_output([sys.executable,'scripts/verify-package-ipa.py',str(output/(PREFIX+'.ipa')),commit])
-    v=json.loads(verification); v['ipa']=PREFIX+'.ipa'
-    (output/'VERIFICATION.json').write_text(json.dumps(v,indent=2,sort_keys=True)+'\n')
-    for name in ('BUILD_TOOLS.txt','BOOTSTRAP_SHA256SUMS.txt','SUBMODULES.txt','SOURCE_COMMIT.txt','SOURCE_PATCH.diff'):
-        shutil.copyfile(artifacts/name,output/name)
-    for row in json.loads((ROOT/'release/BOOTSTRAP-PACKAGES.json').read_text()):
-        data=(ROOT/'Application/Dopamine/Resources'/row['archive']).read_bytes()
-        if sha(data)!=row['sha256']: raise RuntimeError('Bootstrap differs from published source manifest: '+row['archive'])
-    source_zip(output/(PREFIX+'-source.zip'))
-    subprocess.run(['git','bundle','create',str(output/(PREFIX+'-source.bundle')),'HEAD','^1a54e76d515ff5916b64e44d6afbb57d2bc89ee9'],check=True)
-    subprocess.run([sys.executable,'scripts/package-zebra-source.py',str(output)],check=True)
-    for name in ('CREDITS.md','NOTICE.md','LICENSE.md','README.md','RELEASE.md','PACKAGE-RESTART.md'):
-        shutil.copyfile(ROOT/name,output/name)
-    shutil.copyfile(ROOT/'release/BOOTSTRAP-PACKAGES.json',output/'BOOTSTRAP-PACKAGES.json')
-    provenance={'binary_source_commit':commit,'publication_source_commit':commit,'binary_sha256':sha(ipa),'ipa_tipa_identical':True,'source_archive':'Tracked fork source including recursive submodule files; separately bundled packages are described in NOTICE.md.','validation':'Build and artifact verification passed. R4 adds automatic app registration and checked privilege cleanup; R4 hardware validation is pending.','runtime_scope':'Selective restart; R3 working-device results do not establish R4 hardware behavior.'}
-    (output/'PROVENANCE.json').write_text(json.dumps(provenance,indent=2,sort_keys=True)+'\n')
-    entries=[]
-    for p in sorted(output.iterdir()):
-        if p.is_file() and p.name!='SHA256SUMS.txt': entries.append(sha(p.read_bytes())+'  '+p.name)
-    (output/'SHA256SUMS.txt').write_text('\n'.join(entries)+'\n')
-    print('Prepared verified IPA/TIPA, source archives, notices and checksums.')
+    output = Path(sys.argv[1] if len(sys.argv) > 1 else '.build/public-release').resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    names = {PREFIX + '.ipa', PREFIX + '.tipa', PREFIX + '-source.zip'}
+    if any(p.name not in names or not p.is_file() for p in output.iterdir()):
+        raise RuntimeError('Use an output directory containing only the three release files or no files')
+    if git('status', '--porcelain'):
+        raise RuntimeError('Source checkout must be clean')
+    publication_commit = git('rev-parse', 'HEAD')
+    artifacts = ROOT / '.build/artifacts'
+    binary_commit = (artifacts / 'SOURCE_COMMIT.txt').read_text().strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', binary_commit):
+        raise RuntimeError('Invalid binary source commit')
+    ipa_path = artifacts / 'Cheapmine-3-R4-iPhone8Plus-16.7.10.ipa'
+    ipa = ipa_path.read_bytes()
+    verification = json.loads(subprocess.check_output([
+        sys.executable, 'scripts/verify-package-ipa.py', str(ipa_path), binary_commit
+    ]))
+    verification['ipa'] = PREFIX + '.ipa'
+    bootstrap_manifest = json.loads((ROOT / 'release/BOOTSTRAP-PACKAGES.json').read_text())
+    for row in bootstrap_manifest:
+        with zipfile.ZipFile(ipa_path) as app:
+            data = app.read('Payload/Dopamine.app/' + row['archive'])
+        if sha(data) != row['sha256']:
+            raise RuntimeError('Bootstrap differs from recorded source manifest: ' + row['archive'])
+    metadata = {
+        'binary_source_commit': binary_commit,
+        'publication_source_commit': publication_commit,
+        'binary_sha256': sha(ipa),
+        'ipa_tipa_identical': True,
+        'source_scope': 'Tracked fork source with recursive submodules and pinned Zebra dependency source archives.',
+        'build_tools': (artifacts / 'BUILD_TOOLS.txt').read_text(),
+        'build_submodules': (artifacts / 'SUBMODULES.txt').read_text().splitlines(),
+    }
+    with tempfile.TemporaryDirectory(prefix='cheapmine-release-') as directory:
+        staged = Path(directory)
+        archive_path = staged / (PREFIX + '-source.zip')
+        source_zip(archive_path)
+        subprocess.run([sys.executable, 'scripts/package-zebra-source.py', str(staged)], check=True)
+        zebra_name = 'Zebra-1.1.37-source-with-dependencies.zip'
+        with zipfile.ZipFile(archive_path, 'a', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            archive.write(staged / zebra_name, PREFIX + '/dependencies/' + zebra_name)
+            for name, value in (('BUILD-PROVENANCE.json', metadata), ('VERIFICATION.json', verification)):
+                archive.writestr(PREFIX + '/release/' + name, json.dumps(value, indent=2, sort_keys=True) + '\n')
+        for suffix in ('ipa', 'tipa'):
+            (output / (PREFIX + '.' + suffix)).write_bytes(ipa)
+        with archive_path.open('rb') as source, (output / archive_path.name).open('wb') as destination:
+            while chunk := source.read(1024 * 1024):
+                destination.write(chunk)
+    print('Prepared verified IPA, identical TIPA and source ZIP.')
 
-if __name__=='__main__': main()
+
+if __name__ == '__main__':
+    main()
