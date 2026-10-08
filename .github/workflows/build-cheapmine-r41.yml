@@ -1,0 +1,136 @@
+name: Cheapmine 3 R4.1 IPA
+
+on:
+  push:
+    branches: [build-r41-control]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Load exact reviewed source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '616e41a7982387b4a57bb33e2528624c2265bde35ff7d533923279022129fd6a  .github/workflows/cheapmine-r41-source.bundle' | shasum -a 256 -c -
+          cp .github/workflows/cheapmine-r41-source.bundle "$RUNNER_TEMP/package-source.bundle"
+          git bundle verify "$RUNNER_TEMP/package-source.bundle"
+          git fetch "$RUNNER_TEMP/package-source.bundle" refs/heads/cheapmine-3-r4
+          test "$(git rev-parse FETCH_HEAD)" = 'd93289e67d93312e38e09f1a420f993888983b36'
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive
+          git diff --exit-code 52e89c60c19c5f6a344a23c4f255cd20fa191973 HEAD -- .github/workflows
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90
+        with:
+          xcode-version: latest-stable
+      - name: Validate restart routing and cleanup handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-screen-restart.sh
+          python3 BaseBin/systemhook/tests/test_package_restart.py
+          python3 BaseBin/jbctl/tests/test_restart_guards.py
+          python3 Application/tests/test_jbctl_handoff.py
+          python3 Application/tests/test_jbctl_reader.py
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Dopamine uses -s on an app bundle, supported by Procursus ldid.
+          if brew list --versions ldid >/dev/null; then
+            brew uninstall --ignore-dependencies ldid
+          fi
+          brew install ldid-procursus dpkg make libarchive openssl@3 xz zstd gnu-sed coreutils findutils
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+      - name: Install pinned Theos and SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export THEOS="$RUNNER_TEMP/theos"
+          git clone https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+          git -C "$THEOS" submodule update --init --recursive
+          mkdir -p "$THEOS/sdks"
+          curl -fL --retry 3 https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz -o "$RUNNER_TEMP/iphone-sdk.tar.xz"
+          tar -xJf "$RUNNER_TEMP/iphone-sdk.tar.xz" -C "$THEOS/sdks"
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+      - name: Build pinned trustcache utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/CRKatri/trustcache "$RUNNER_TEMP/trustcache"
+          cd "$RUNNER_TEMP/trustcache"
+          git checkout aa0e8847529cf76576fce8d2dbc9e088c8f1a0df
+          export CFLAGS="-I$(brew --prefix openssl@3)/include"
+          export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+          gmake -j2 OPENSSL=1
+          echo "$RUNNER_TEMP/trustcache" >> "$GITHUB_PATH"
+      - name: Compile and verify IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-package-ipa.sh
+          python3 scripts/package-public-release.py .build/public-release
+      - name: Upload IPA and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Cheapmine-3-R4.1-iPhone8Plus-20H350
+          path: .build/public-release/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish verified source and downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:refs/heads/cheapmine-3-r4
+          cat > "$RUNNER_TEMP/release-notes.txt" <<'NOTES'
+          Fixes an R4 regression where initial jailbreak setup could stop at "Initializing Protection" with error 13. The app now recognizes the root and sandbox state established during bootstrap. Normal privilege acquisition and cleanup checks remain enforced. The selective restart behavior and automatic package-manager registration are retained.
+
+          Built for iPhone 8 Plus (iPhone10,5), iOS 16.7.10 (20H350). Build 2026.10.75, runtime 3.0.10-s4.1.
+
+          Install the IPA with the same bundle identifier and signing account used for the previous version. After an R4 setup failure, restart the phone normally before jailbreaking with R4.1; the failed attempt may have already injected the older basebin.
+
+          The source ZIP contains the fork source, recursive submodules, upstream licenses, build records and Zebra dependency sources. Compilation, packaging and regression checks passed; on-device confirmation of this correction is pending.
+
+          Based on [Dopamine by opa334 and contributors](https://github.com/opa334/Dopamine) and [Cheapamine by wumbomumbo and contributors](https://github.com/wumbomumbo/Cheapamine). Original component copyrights, licenses and app credits are retained.
+
+          **This product includes software developed by the Sileo Team.**
+          NOTES
+          gh release create cheapmine-3-r4.1 --target d93289e67d93312e38e09f1a420f993888983b36 --prerelease \
+            --title 'Cheapmine 3 — R4.1' --notes-file "$RUNNER_TEMP/release-notes.txt" \
+            .build/public-release/Cheapmine-3-R4.1.ipa .build/public-release/Cheapmine-3-R4.1-source.zip
+          gh release view cheapmine-3-r4.1 --json assets,tagName > "$RUNNER_TEMP/published.json"
+          python3 - "$RUNNER_TEMP/published.json" <<'PYCODE'
+          import json, sys
+          release = json.load(open(sys.argv[1]))
+          assert release['tagName'] == 'cheapmine-3-r4.1'
+          assert {a['name'] for a in release['assets']} == {'Cheapmine-3-R4.1.ipa', 'Cheapmine-3-R4.1-source.zip'}
+          PYCODE
+          gh release view cheapmine-3-r4 --json body > "$RUNNER_TEMP/older-release.json"
+          python3 - "$RUNNER_TEMP/older-release.json" "$RUNNER_TEMP/older-notes.txt" <<'PYCODE'
+          import json, pathlib, sys
+          old = json.load(open(sys.argv[1]))['body']
+          notice = 'Superseded by [R4.1](https://github.com/privacyportalUK/Cheapmine-3/releases/tag/cheapmine-3-r4.1), which corrects an R4 permission check that can stop initial setup with error 13.\n\n'
+          pathlib.Path(sys.argv[2]).write_text(notice + old)
+          PYCODE
+          gh release edit cheapmine-3-r4 --notes-file "$RUNNER_TEMP/older-notes.txt"
