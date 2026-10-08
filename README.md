@@ -16,9 +16,9 @@ On the test device, touch remained responsive after jailbreaking, installing a t
 
 ## Download R4.1
 
-- [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapmine-3-r4.1/Cheapamine-3-R4.1.ipa)
-- [Cheapamine-3-R4.1-source.zip](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapmine-3-r4.1/Cheapamine-3-R4.1-source.zip)
-- [Release notes](https://github.com/privacyportalUK/Cheapamine-3/releases/tag/cheapmine-3-r4.1)
+- [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapamine-3-r4.1/Cheapamine-3-R4.1.ipa)
+- [Cheapamine-3-R4.1-source.zip](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapamine-3-r4.1/Cheapamine-3-R4.1-source.zip)
+- [Release notes](https://github.com/privacyportalUK/Cheapamine-3/releases/tag/cheapamine-3-r4.1)
 
 ## Supported device
 
@@ -32,7 +32,7 @@ R4.1 has been confirmed working on this device configuration. The follow-up diag
 
 This release has been tested on **iPhone 8 Plus (`iPhone10,5`), iOS 16.7.10 (`20H350`)**. Check your model and iOS version in **Settings → General → About**; other devices and iOS versions are unsupported and untested.
 
-Download [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapmine-3-r4.1/Cheapamine-3-R4.1.ipa) to your computer. The **IPA is the installable app**; the source ZIP is for building it yourself. You will need a Mac or Windows PC, a USB cable, and an Apple account for signing.
+Download [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapamine-3-r4.1/Cheapamine-3-R4.1.ipa) to your computer. The **IPA is the installable app**; the source ZIP is for building it yourself. You will need a Mac or Windows PC, a USB cable, and an Apple account for signing.
 
 ### 2. Install the IPA
 
