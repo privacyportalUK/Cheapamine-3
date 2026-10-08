@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a verified R4 build as IPA, TIPA and a source ZIP."""
+"""Package a verified R4 build as IPA and a source ZIP."""
 import hashlib
 import json
 import os
@@ -56,9 +56,9 @@ def main():
     os.chdir(ROOT)
     output = Path(sys.argv[1] if len(sys.argv) > 1 else '.build/public-release').resolve()
     output.mkdir(parents=True, exist_ok=True)
-    names = {PREFIX + '.ipa', PREFIX + '.tipa', PREFIX + '-source.zip'}
+    names = {PREFIX + '.ipa', PREFIX + '-source.zip'}
     if any(p.name not in names or not p.is_file() for p in output.iterdir()):
-        raise RuntimeError('Use an output directory containing only the three release files or no files')
+        raise RuntimeError('Use an output directory containing only the two release files or no files')
     if git('status', '--porcelain'):
         raise RuntimeError('Source checkout must be clean')
     publication_commit = git('rev-parse', 'HEAD')
@@ -82,7 +82,6 @@ def main():
         'binary_source_commit': binary_commit,
         'publication_source_commit': publication_commit,
         'binary_sha256': sha(ipa),
-        'ipa_tipa_identical': True,
         'source_scope': 'Tracked fork source with recursive submodules and pinned Zebra dependency source archives.',
         'build_tools': (artifacts / 'BUILD_TOOLS.txt').read_text(),
         'build_submodules': (artifacts / 'SUBMODULES.txt').read_text().splitlines(),
@@ -97,12 +96,11 @@ def main():
             archive.write(staged / zebra_name, PREFIX + '/dependencies/' + zebra_name)
             for name, value in (('BUILD-PROVENANCE.json', metadata), ('VERIFICATION.json', verification)):
                 archive.writestr(PREFIX + '/release/' + name, json.dumps(value, indent=2, sort_keys=True) + '\n')
-        for suffix in ('ipa', 'tipa'):
-            (output / (PREFIX + '.' + suffix)).write_bytes(ipa)
+        (output / (PREFIX + '.ipa')).write_bytes(ipa)
         with archive_path.open('rb') as source, (output / archive_path.name).open('wb') as destination:
             while chunk := source.read(1024 * 1024):
                 destination.write(chunk)
-    print('Prepared verified IPA, identical TIPA and source ZIP.')
+    print('Prepared verified IPA and source ZIP.')
 
 
 if __name__ == '__main__':
