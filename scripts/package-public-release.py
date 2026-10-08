@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a verified R4 build as IPA and a source ZIP."""
+"""Package a verified R4.1 build as IPA and a source ZIP."""
 import hashlib
 import json
 import os
@@ -12,7 +12,7 @@ import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIX = 'Cheapmine-3-R4'
+PREFIX = 'Cheapmine-3-R4.1'
 
 
 def git(*args):
@@ -66,7 +66,7 @@ def main():
     binary_commit = (artifacts / 'SOURCE_COMMIT.txt').read_text().strip()
     if not re.fullmatch(r'[0-9a-f]{40}', binary_commit):
         raise RuntimeError('Invalid binary source commit')
-    ipa_path = artifacts / 'Cheapmine-3-R4-iPhone8Plus-16.7.10.ipa'
+    ipa_path = artifacts / 'Cheapmine-3-R4.1-iPhone8Plus-16.7.10.ipa'
     ipa = ipa_path.read_bytes()
     verification = json.loads(subprocess.check_output([
         sys.executable, 'scripts/verify-package-ipa.py', str(ipa_path), binary_commit

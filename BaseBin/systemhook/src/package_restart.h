@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <sys/types.h>
 
-#define PACKAGE_RESTART_VERSION "3.0.10-s4"
+#define PACKAGE_RESTART_VERSION "3.0.10-s4.1"
 struct package_restart_request {
     const char *executable;
     const char *root;

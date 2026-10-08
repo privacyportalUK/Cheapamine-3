@@ -87,8 +87,9 @@ int main(void) {
     reset(); helper_missing=1; assert(package_restart_route(binary,"/var/jb",3,argv,env)==ENOENT && !exec_count);
     reset(); version_open_error=1; assert(package_restart_route(binary,"/var/jb",3,argv,env)==ELOOP && !exec_count && !close_count);
     reset(); version_read_error=1; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPROTO && !exec_count && close_count==1);
-    reset(); version_value="3.0.10-s2"; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPROTO && !exec_count && close_count==1);
-    reset(); version_value="3.0.10-s4\n"; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count);
+    reset(); version_value="3.0.10-s2.0"; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPROTO && !exec_count && close_count==1);
+    reset(); version_value="3.0.10-s4"; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count && close_count==1);
+    reset(); version_value="3.0.10-s4.1\n"; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count);
     reset(); helper_mode=S_IFLNK|0755; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count);
     reset(); helper_mode=S_IFREG|0775; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count);
     reset(); helper_owner=501; assert(package_restart_route(binary,"/var/jb",3,argv,env)==EPERM && !exec_count);

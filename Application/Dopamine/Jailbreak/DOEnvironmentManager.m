@@ -430,21 +430,35 @@ extern char **environ;
         // root credential or sandbox-label restoration has failed.
         uid_t originalUser = geteuid();
         gid_t originalGroup = getegid();
+        if (originalUser != 0 || originalGroup != 0) self.bootstrapPrivilegesActive = NO;
+        // Exploit elevation already verified the sandbox label. Its audit token
+        // may still identify mobile, so a redundant root-domain RPC can fail.
+        // Ordinary root callers must still use the checked label transition.
+        BOOL bootstrapPrivileges = self.bootstrapPrivilegesActive && originalUser == 0 && originalGroup == 0;
         BOOL dropRoot = NO, restoreLabel = NO;
         uint64_t originalLabel = 0;
         result = 0;
         if (originalUser != 0 || originalGroup != 0) {
-            if (!self.isJailbroken) result = EPERM;
+            if (!self.isJailbroken) {
+                result = EPERM;
+                NSLog(@"jbctl handoff root acquire: jailbreak unavailable");
+            }
             else {
                 int rootError = jbclient_dopamine_get_root();
                 // A lost reply may still have changed credentials; clean up then too.
                 dropRoot = rootError == 0 || geteuid() != originalUser || getegid() != originalGroup;
-                if (rootError != 0 || geteuid() != 0 || getegid() != 0) result = EPERM;
+                if (rootError != 0 || geteuid() != 0 || getegid() != 0) {
+                    result = EPERM;
+                    NSLog(@"jbctl handoff root acquire failed: rpc=%d euid=%u egid=%u", rootError, geteuid(), getegid());
+                }
             }
         }
-        if (result == 0 && !self.isInstalledThroughTrollStore && self.isJailbroken) {
+        if (result == 0 && !bootstrapPrivileges && !self.isInstalledThroughTrollStore && self.isJailbroken) {
             int labelError = jbclient_root_set_mac_label(1, -1, &originalLabel);
-            if (labelError != 0) result = EACCES;
+            if (labelError != 0) {
+                result = EACCES;
+                NSLog(@"jbctl handoff label acquire failed: rpc=%d", labelError);
+            }
             else restoreLabel = YES;
         }
         if (result == 0) {
@@ -452,21 +466,28 @@ extern char **environ;
             result = posix_spawn(&child, argBuf[0], &act, &attr, argBuf, environ);
             if (result == 0 && child > 0) pid = child;
             else if (result == 0) result = ECHILD;
+            if (result != 0) NSLog(@"jbctl handoff spawn failed: error=%d", result);
             if (result == 0 && needsLegacySolution) {
                 // Older helpers have no cleanup-token reader and need root to resume.
                 if (kill(pid, SIGCONT) != 0) result = errno;
             }
         }
-        if (restoreLabel && jbclient_root_set_mac_label(1, originalLabel, NULL) != 0) {
-            result = EACCES;
-            if (pid > 0) kill(pid, SIGKILL); // Still root here; stop the waiting child.
+        if (restoreLabel) {
+            int restoreError = jbclient_root_set_mac_label(1, originalLabel, NULL);
+            if (restoreError != 0) {
+                result = EACCES;
+                NSLog(@"jbctl handoff label restore failed: rpc=%d", restoreError);
+                if (pid > 0) kill(pid, SIGKILL); // Still root here; stop the waiting child.
+            }
         }
         if (dropRoot) {
             int dropError = jbclient_dopamine_drop_root();
-            if (dropError != 0 || geteuid() != originalUser || getegid() != originalGroup)
+            if (dropError != 0 || geteuid() != originalUser || getegid() != originalGroup) {
                 result = EPERM;
+                NSLog(@"jbctl handoff root drop failed: rpc=%d euid=%u egid=%u", dropError, geteuid(), getegid());
+            }
         }
-        // Only release a modern helper after both cleanup RPCs succeeded.
+        // Release only after every privilege transition made here was cleaned up.
         if (result == 0 && !needsLegacySolution) {
             uint32_t ready = 1;
             ssize_t written;
@@ -513,8 +534,8 @@ extern char **environ;
 - (void)rebootUserspace
 {
     NSString *activeVersion = [self.jailbrokenVersion stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-s4"]) {
-        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapmine 3 R4 first. The active jailbreak has no screen-restart helper." debug:NO];
+    if (self.isScreenWorkaroundEnabled && ![activeVersion isEqualToString:@"3.0.10-s4.1"]) {
+        [[DOUIManager sharedInstance] sendLog:@"Restart the phone normally and jailbreak using Cheapmine 3 R4.1 first. The active jailbreak has no screen-restart helper." debug:NO];
         return;
     }
     // Keep Dopamine 3's --waitfor handoff: never restart services while the app

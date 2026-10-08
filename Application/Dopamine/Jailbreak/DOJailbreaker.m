@@ -253,6 +253,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 
 - (NSError *)elevatePrivileges
 {
+    [DOEnvironmentManager sharedManager].bootstrapPrivilegesActive = NO;
     uint64_t proc = proc_self();
     uint64_t ucred = proc_ucred(proc);
     
@@ -311,9 +312,12 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     
     // Get CS_PLATFORM_BINARY
     proc_csflags_set(proc, CS_PLATFORM_BINARY);
-    uint32_t csflags;
-    csops(getpid(), CS_OPS_STATUS, &csflags, sizeof(csflags));
-    if (!(csflags & CS_PLATFORM_BINARY)) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedPlatformize userInfo:@{NSLocalizedDescriptionKey:@"Failed to get CS_PLATFORM_BINARY"}];
+    uint32_t csflags = 0;
+    if (csops(getpid(), CS_OPS_STATUS, &csflags, sizeof(csflags)) != 0 || !(csflags & CS_PLATFORM_BINARY)) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedPlatformize userInfo:@{NSLocalizedDescriptionKey:@"Failed to get CS_PLATFORM_BINARY"}];
+
+    if (geteuid() != 0 || getegid() != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedGetRoot userInfo:@{NSLocalizedDescriptionKey:@"Bootstrap effective root credentials were not established"}];
+    if (mac_label_get(label, 1) != UINT64_MAX) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedUnsandbox userInfo:@{NSLocalizedDescriptionKey:@"Bootstrap sandbox label verification failed"}];
+    [DOEnvironmentManager sharedManager].bootstrapPrivilegesActive = YES;
     
     return nil;
 }
@@ -554,6 +558,7 @@ void *boomerang_server(struct boomerang_info *info)
 - (NSError *)cleanUpPostExploitation
 {
     if (@available(iOS 17.0, *)) {
+        [DOEnvironmentManager sharedManager].bootstrapPrivilegesActive = NO;
         uint64_t proc = proc_self();
         uint64_t ucred = proc_ucred(proc);
 
@@ -579,7 +584,7 @@ void *boomerang_server(struct boomerang_info *info)
     if (uname(&target) != 0 || sysctlbyname("kern.osversion", build, &buildLength, NULL, 0) != 0 ||
         strcmp(target.machine, "iPhone10,5") != 0 || strcmp(build, "20H350") != 0) {
         *errOut = [NSError errorWithDomain:JBErrorDomain code:1060 userInfo:@{
-            NSLocalizedDescriptionKey : @"Cheapmine 3 R4 supports only iPhone 8 Plus (iPhone10,5) on iOS 16.7.10 (20H350)."
+            NSLocalizedDescriptionKey : @"Cheapmine 3 R4.1 supports only iPhone 8 Plus (iPhone10,5) on iOS 16.7.10 (20H350)."
         }];
         return;
     }

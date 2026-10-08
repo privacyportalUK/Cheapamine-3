@@ -24,7 +24,7 @@ extern char **environ;
 static const char *childPath;
 static uid_t effectiveUser, expectedUser;
 static gid_t effectiveGroup, expectedGroup;
-static uint64_t sandboxLabel;
+static uint64_t sandboxLabel, expectedLabel;
 static int failPipe, denyRoot, denySandbox, failRestore, failDrop, dropDoesNothing;
 static int lostRootReply, failWrite, interruptWait, spawnCount, writeCount, rootCalls, dropCalls, labelCalls;
 static uid_t test_geteuid(void) { return effectiveUser; }
@@ -50,7 +50,7 @@ static int test_spawn(pid_t *pid,const char *path,const posix_spawn_file_actions
 }
 static ssize_t test_write(int fd,const void *buffer,size_t length) {
  ++writeCount;
- assert(effectiveUser==expectedUser && effectiveGroup==expectedGroup && sandboxLabel==42);
+ assert(effectiveUser==expectedUser && effectiveGroup==expectedGroup && sandboxLabel==expectedLabel);
  assert(!failRestore && !failDrop && !dropDoesNothing);
  if(failWrite){errno=EIO;return -1;}
  return write(fd,buffer,length);
@@ -71,6 +71,7 @@ static pid_t test_waitpid(pid_t pid,int *status,int flags) {
 @property NSString *jailbrokenVersion;
 @property BOOL isJailbroken;
 @property BOOL isInstalledThroughTrollStore;
+@property BOOL bootstrapPrivilegesActive;
 - (int)spawnJbctlAsRootWithArgs:(NSArray *)args;
 @end
 @implementation DOEnvironmentManager
@@ -78,10 +79,11 @@ static pid_t test_waitpid(pid_t pid,int *status,int flags) {
 postamble = r'''
 @end
 static void reset(DOEnvironmentManager *d) {
- effectiveUser=expectedUser=501;effectiveGroup=expectedGroup=501;sandboxLabel=42;
+ effectiveUser=expectedUser=501;effectiveGroup=expectedGroup=501;sandboxLabel=expectedLabel=42;
  failPipe=denyRoot=denySandbox=failRestore=failDrop=dropDoesNothing=lostRootReply=failWrite=interruptWait=0;
  spawnCount=writeCount=rootCalls=dropCalls=labelCalls=0;
- d.jailbrokenVersion=@"3.0.10-s4";d.isJailbroken=YES;d.isInstalledThroughTrollStore=NO;
+ d.jailbrokenVersion=@"3.0.10-s4.1";d.isJailbroken=YES;d.isInstalledThroughTrollStore=NO;
+ d.bootstrapPrivilegesActive=NO;
 }
 static void check(DOEnvironmentManager *d,int expected,int spawns,int writes) {
  int result=[d spawnJbctlAsRootWithArgs:@[@"modern"]];
@@ -89,7 +91,7 @@ static void check(DOEnvironmentManager *d,int expected,int spawns,int writes) {
 }
 int main(int argc,char **argv) {@autoreleasepool {
  assert(argc==2);childPath=argv[1];DOEnvironmentManager *d=[DOEnvironmentManager new];
- for(NSString *v in @[@"3.0.5",@"3.0.10",@"3.0.10-s4",@"3.1.0"]){
+ for(NSString *v in @[@"3.0.5",@"3.0.10",@"3.0.10-s4",@"3.0.10-s4.1",@"3.1.0"]){
   reset(d);d.jailbrokenVersion=v;check(d,0,1,1);assert(rootCalls==1 && dropCalls==1 && labelCalls==2);
  }
  reset(d);d.jailbrokenVersion=@"3.0.4";assert([d spawnJbctlAsRootWithArgs:@[@"legacy"]]==0 && writeCount==0);
@@ -105,11 +107,36 @@ int main(int argc,char **argv) {@autoreleasepool {
  reset(d);d.isJailbroken=NO;check(d,EPERM,0,0);
  reset(d);d.isInstalledThroughTrollStore=YES;check(d,0,1,1);assert(labelCalls==0);
  reset(d);effectiveUser=expectedUser=0;effectiveGroup=expectedGroup=0;check(d,0,1,1);assert(rootCalls==0 && dropCalls==0);
+ // UID 0 alone is not evidence of a removed sandbox: ordinary root must still
+ // acquire/restore the label, and a denied RPC must prevent helper execution.
+ assert(labelCalls==2 && sandboxLabel==42);
+ reset(d);effectiveUser=expectedUser=0;effectiveGroup=expectedGroup=0;
+ denySandbox=1;check(d,EACCES,0,0);assert(rootCalls==0 && dropCalls==0 && labelCalls==1);
+ // Initial exploit elevation already removed the sandbox. Its cached audit
+ // token may reject root-domain RPCs; none are needed for this trusted scope.
+ reset(d);effectiveUser=expectedUser=0;effectiveGroup=expectedGroup=0;
+ sandboxLabel=expectedLabel=UINT64_MAX;d.bootstrapPrivilegesActive=YES;denySandbox=1;
+ int completed=0;
+ for(NSArray *command in @[@[@"internal",@"protection",@"activate"],
+                          @[@"internal",@"fakelib",@"mount"],@[@"screen_restart"]]) {
+  assert([d spawnJbctlAsRootWithArgs:command]==0);++completed;
+  assert(spawnCount==completed && writeCount==completed && d.bootstrapPrivilegesActive);
+  assert(rootCalls==0 && dropCalls==0 && labelCalls==0 && sandboxLabel==UINT64_MAX);
+ }
+ // A stale marker cannot authorize bypass after either effective ID changes.
+ for(int changedGroupOnly=0;changedGroupOnly<2;changedGroupOnly++) {
+  reset(d);d.bootstrapPrivilegesActive=YES;
+  if(changedGroupOnly)effectiveUser=expectedUser=0;
+  check(d,0,1,1);
+  assert(!d.bootstrapPrivilegesActive && rootCalls==1 && dropCalls==1 && labelCalls==2);
+ }
+ reset(d);d.bootstrapPrivilegesActive=YES;denySandbox=1;check(d,EACCES,0,0);
+ assert(!d.bootstrapPrivilegesActive && rootCalls==1 && dropCalls==1 && labelCalls==1);
  reset(d);const char *saved=childPath;childPath="/no/such/jbctl";check(d,ENOENT,1,0);
  assert(sandboxLabel==42 && effectiveUser==501);childPath=saved;
  reset(d);assert([d spawnJbctlAsRootWithArgs:@[@"exit71"]]==71);
  reset(d);assert([d spawnJbctlAsRootWithArgs:@[@"signal"]]==128+SIGTERM);
- puts("PASS: checked privilege acquisition/restoration, cleanup refusal with no token, raw wait-status decoding, versions and spawn/pipe/write errors");
+ puts("PASS: trusted bootstrap handoff across protection/fakelib/restart, stale-context invalidation, checked ordinary privilege acquisition/restoration, cleanup refusal with no token, raw wait-status decoding, versions and spawn/pipe/write errors");
 }return 0;}
 '''
 child = r'''#include <unistd.h>
@@ -118,7 +145,7 @@ child = r'''#include <unistd.h>
 #include <signal.h>
 int main(int argc,char **argv) {
  if(!strcmp(argv[1],"legacy"))return argc==2?0:1;
- if(argc!=4 || strcmp(argv[2],"--waitfor") || strcmp(argv[3],"3"))return 2;
+ if(argc<4 || strcmp(argv[argc-2],"--waitfor") || strcmp(argv[argc-1],"3"))return 2;
  uint32_t token=0;if(read(3,&token,4)!=4 || token!=1)return 3;
  if(!strcmp(argv[1],"exit71"))return 71;
  if(!strcmp(argv[1],"signal"))raise(SIGTERM);

@@ -19,7 +19,7 @@ git submodule update --init --recursive
 # A clean Actions checkout compiles the app and basebin from this source commit.
 gmake -j2 NIGHTLY=1
 mkdir -p .build/artifacts
-ipa_path=.build/artifacts/Cheapmine-3-R4-iPhone8Plus-16.7.10.ipa
+ipa_path=.build/artifacts/Cheapmine-3-R4.1-iPhone8Plus-16.7.10.ipa
 cp Application/Dopamine.ipa "$ipa_path"
 python3 scripts/verify-package-ipa.py "$ipa_path" "$(git rev-parse HEAD)" > .build/artifacts/VERIFICATION.json
 (

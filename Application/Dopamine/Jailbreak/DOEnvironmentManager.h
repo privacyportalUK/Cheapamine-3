@@ -20,6 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)sharedManager;
 
+// In-memory evidence of this process's verified exploit-time root/unsandbox state.
+// Never inferred from root credentials alone or persisted across app launches.
+@property (nonatomic) BOOL bootstrapPrivilegesActive;
+
 - (NSString *)appVersion;
 - (NSString *)appVersionDisplayString;
 - (NSString *)nightlyHash;

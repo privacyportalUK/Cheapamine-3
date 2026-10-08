@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sys/sysctl.h>
 
-#define CHEAPAMINE3_VERSION "3.0.10-s4"
+#define CHEAPAMINE3_VERSION "3.0.10-s4.1"
 
 static inline bool cheapamine3_target_runtime(void)
 {

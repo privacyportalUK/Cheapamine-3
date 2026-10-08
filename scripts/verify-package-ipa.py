@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an actual Cheapmine R4 IPA. Packaging checks cannot establish runtime safety."""
+"""Validate an actual Cheapmine R4.1 IPA. Packaging checks cannot establish runtime safety."""
 import argparse
 import hashlib
 import io
@@ -16,7 +16,7 @@ import zipfile
 
 # Check that every systemhook architecture contains the package command route.
 # Presence establishes packaging only; device execution is tested separately.
-PACKAGE_ROUTE_MARKERS = (b"package_restart\x00", b"3.0.10-s4\x00", b"20H350\x00")
+PACKAGE_ROUTE_MARKERS = (b"package_restart\x00", b"3.0.10-s4.1\x00", b"20H350\x00")
 REGISTRATION_MARKERS = (b"uicache-started\x00", b"uicache-complete\x00")
 
 
@@ -145,7 +145,7 @@ def validate(path, expected_commit=None):
         root = roots[0]
         info = plistlib.loads(archive.read(root + "Info.plist"))
         for key, expected in {"CFBundleIdentifier": "com.privacyportal.DopamineFresh",
-                              "CFBundleDisplayName": "Cheapmine 3 R4", "CFBundleVersion": "2026.10.74"}.items():
+                              "CFBundleDisplayName": "Cheapmine 3 R4.1", "CFBundleVersion": "2026.10.75"}.items():
             require(info.get(key) == expected, f"Wrong {key}: {info.get(key)!r}")
         executable_name = info.get("CFBundleExecutable")
         require(executable_name and "/" not in executable_name, "Invalid bundle executable name")
@@ -198,7 +198,7 @@ def validate(path, expected_commit=None):
                         "Diagnostic or workaround content in basebin")
                 if member.isfile():
                     files[member.name] = tar.extractfile(member).read()
-            require(files.get("basebin/.version") == b"3.0.10-s4", "Incorrect exact basebin version")
+            require(files.get("basebin/.version") == b"3.0.10-s4.1", "Incorrect exact basebin version")
             require(files.get("basebin/basebin.tc") == outer_tc, "Inner/outer trustcaches differ")
             entries = trustcache(outer_tc)
             jbctl = files["basebin/jbctl"]
@@ -234,7 +234,7 @@ def validate(path, expected_commit=None):
                 "identity": {k: info[k] for k in ("CFBundleIdentifier", "CFBundleDisplayName", "CFBundleVersion")},
                 "compiled_source_commit": expected_commit or (candidates[0] if len(candidates) == 1 else None),
                 "compiled_commit_candidates": candidates, "app_sha256": digest(app), "app_slices": app_slices,
-                "exploit_bundles": len(exploit_names), "basebin_version": "3.0.10-s4",
+                "exploit_bundles": len(exploit_names), "basebin_version": "3.0.10-s4.1",
                 "basebin_tar_sha256": digest(basebin_tar), "trustcache_sha256": digest(outer_tc),
                 "trustcache_entries": len(entries), "covered_basebin_slices": covered,
                 "upstream_trustcache_exceptions": exceptions, "basebin_fingerprints": fingerprints,

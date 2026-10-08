@@ -40,7 +40,7 @@ static void restart_trace(int fd, const char *event, int result)
     if (fd < 0) return;
     struct timeval now;
     if (gettimeofday(&now, NULL) != 0) return;
-    dprintf(fd, "s4 time=%lld.%06d pid=%d event=%s result=%d\n",
+    dprintf(fd, "s4.1 time=%lld.%06d pid=%d event=%s result=%d\n",
         (long long)now.tv_sec, (int)now.tv_usec, getpid(), event, result);
 }
 
