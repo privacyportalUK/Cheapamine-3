@@ -1,0 +1,173 @@
+name: Preserve R4 source archive links
+
+on:
+  push:
+    branches: [publish-r4-source-links-control]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout publication controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Import reviewed source cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'a998d716e294157fe23b0b26c729daee83690cafafacf095c901997759054183  .github/workflows/cheapmine-r4-source-links.bundle' | sha256sum -c -
+          cp .github/workflows/cheapmine-r4-source-links.bundle "$RUNNER_TEMP/clean-source.bundle"
+          git bundle verify "$RUNNER_TEMP/clean-source.bundle"
+          git fetch "$RUNNER_TEMP/clean-source.bundle" refs/heads/cheapmine-3-r4
+          test "$(git rev-parse FETCH_HEAD)" = '47bf8c4b9ed5314e0aa9479fbc7582a2e865607a'
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive
+          git diff --exit-code 739d64e8ba47ec9ef4c14bc51fd43b98a8e3d01c HEAD -- .github/workflows
+          git push origin HEAD:refs/heads/cheapmine-3-r4
+      - name: Preserve current release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/releases/tags/cheapmine-3-r4" > "$RUNNER_TEMP/r4-before.json"
+          gh release download cheapmine-3-r4 --dir "$RUNNER_TEMP/r4-original"
+      - name: Publish and verify three downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          #!/usr/bin/env python3
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import zipfile
+
+          TAG = 'cheapmine-3-r4'
+          KEEP = {'Cheapmine-3-R4-source.zip', 'Cheapmine-3-R4.ipa', 'Cheapmine-3-R4.tipa'}
+          SUPPORT = {'BOOTSTRAP-PACKAGES.json', 'BUILD_TOOLS.txt', 'SOURCE_COMMIT.txt',
+                     'SUBMODULES.txt', 'VERIFICATION.json', 'PROVENANCE.json',
+                     'Zebra-1.1.37-source-with-dependencies.zip'}
+          REMOVED_MD = {'BaseBin/jbctl/tests/README.md', 'CREDITS.md', 'NOTICE.md',
+                        'PACKAGE-RESTART.md', 'README.md', 'RELEASE.md', 'SCREEN-WORKAROUND.md'}
+          BINARY_COMMIT = 'd778235f5ba4114380bd91282d2d23d288034cab'
+          IPA_SHA = 'c5e822d355721f1e5e8ce231620280ff5949bc90734f9ac9d5c0f2f8892d73c2'
+
+          def gh(*args):
+              return subprocess.check_output(['gh', *args], text=True)
+
+          def sha(p):
+              return hashlib.sha256(p.read_bytes()).hexdigest()
+
+          def main():
+              root = Path(os.environ['RUNNER_TEMP'])
+              repo = os.environ['GH_REPO']
+              original = root/'r4-original'
+              output = root/'r4-output'
+              output.mkdir()
+              prior = json.loads((root/'r4-before.json').read_text())
+              old = {a['name']: a for a in prior['assets']}
+              assert set(old) == KEEP or (len(old) == 20 and KEEP <= old.keys())
+              for a in prior['assets']:
+                  assert sha(original/a['name']) == a['digest'].removeprefix('sha256:')
+              for name in ('Cheapmine-3-R4.ipa', 'Cheapmine-3-R4.tipa'):
+                  assert sha(original/name) == IPA_SHA
+              assert not any(Path(p).exists() for p in REMOVED_MD)
+              source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+              spec = importlib.util.spec_from_file_location('release_packager', 'scripts/package-public-release.py')
+              packager = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(packager)
+              archive = output/'Cheapmine-3-R4-source.zip'
+              packager.source_zip(archive)
+              if set(old) == KEEP:
+                  with zipfile.ZipFile(original/'Cheapmine-3-R4-source.zip') as previous:
+                      included = {name: previous.read('Cheapmine-3-R4/release-materials/'+name) for name in SUPPORT}
+              else:
+                  included = {name: (original/name).read_bytes() for name in SUPPORT}
+              provenance = json.loads(included['PROVENANCE.json'])
+              assert provenance['binary_source_commit'] == BINARY_COMMIT
+              provenance['publication_source_commit'] = source_commit
+              provenance['publication_changes'] = 'Source documentation and distribution packaging updated after compilation, including preservation of dependency directory symlinks. Runtime behavior and IPA/TIPA bytes are unchanged.'
+              provenance['source_archive'] = 'Tracked fork source and recursive submodule files. Dependency source and build records are under release-materials/.'
+              included['PROVENANCE.json'] = (json.dumps(provenance, indent=2, sort_keys=True)+'\n').encode()
+              prefix = 'Cheapmine-3-R4/release-materials/'
+              with zipfile.ZipFile(archive, 'a') as z:
+                  for name, data in sorted(included.items()):
+                      item = zipfile.ZipInfo(prefix+name, (2026,10,8,0,0,0))
+                      item.compress_type = zipfile.ZIP_STORED
+                      item.create_system = 3
+                      item.external_attr = 0o100644 << 16
+                      z.writestr(item, data)
+              with zipfile.ZipFile(archive) as z:
+                  assert z.testzip() is None
+                  assert not {'Cheapmine-3-R4/'+p for p in REMOVED_MD} & set(z.namelist())
+                  assert not any(n.endswith(('/SHA256SUMS.txt', '/BOOTSTRAP_SHA256SUMS.txt', '/SOURCE_PATCH.diff', '-source.bundle')) for n in z.namelist())
+                  for name, data in included.items():
+                      assert z.read(prefix+name) == data
+                  assert z.read('Cheapmine-3-R4/LICENSE.md') == Path('LICENSE.md').read_bytes()
+              expected = sha(archive)
+              gh('release', 'upload', TAG, str(archive), '--clobber')
+              gh('release', 'download', TAG, '--pattern', archive.name, '--dir', str(root/'r4-verified'))
+              assert sha(root/'r4-verified'/archive.name) == expected
+              current = json.loads(gh('api', f'repos/{repo}/releases/tags/{TAG}'))
+              assert {a['name'] for a in current['assets']} == set(old)
+              for a in current['assets']:
+                  if a['name'] != archive.name:
+                      assert a['id'] == old[a['name']]['id'] and a['digest'] == old[a['name']]['digest']
+              notes = root/'r4-release-notes.txt'
+              notes.write_text('''Cheapmine 3 R4 for **iPhone 8 Plus (iPhone10,5), iOS 16.7.10 (20H350)**.
+
+          Build **2026.10.74**, basebin **3.0.10-s4**.
+
+          - Registers Sileo and Zebra automatically before the initial service restart.
+          - Stops before restarting services if registration or privilege cleanup fails.
+          - Reports helper exit errors accurately.
+
+          Download the **IPA** to sideload. Perform a normal device restart before updating,
+          then open Cheapmine 3 R4 and run Jailbreak. Use the same signing account for updates.
+          The **TIPA** contains the same app; it does not add TrollStore support on 16.7.10.
+
+          The **source ZIP** includes the fork source, upstream licenses and dependency
+          sources. Build records and Zebra's source with dependencies are in
+          `Cheapmine-3-R4/release-materials/`.
+
+          R4 passed compilation and regression checks; on-device confirmation is pending.
+          This build retains Cheapamine's selective restart behavior. Live basebin updates
+          require a normal device restart and a fresh jailbreak.
+
+          Based on [Dopamine by opa334 and contributors](https://github.com/opa334/Dopamine)
+          and [Cheapamine by wumbomumbo and contributors](https://github.com/wumbomumbo/Cheapamine).
+          Original component copyrights, licenses and app credits are retained.
+
+          **This product includes software developed by the Sileo Team.**
+          ''')
+              gh('api', '--method', 'PATCH', f'repos/{repo}/git/refs/tags/{TAG}', '-f', 'sha='+source_commit, '-F', 'force=true')
+              gh('release', 'edit', TAG, '--target', source_commit, '--notes-file', str(notes))
+              for name, a in old.items():
+                  if name not in KEEP:
+                      gh('api', '--method', 'DELETE', f"repos/{repo}/releases/assets/{a['id']}")
+              final = json.loads(gh('api', f'repos/{repo}/releases/tags/{TAG}'))
+              assert {a['name'] for a in final['assets']} == KEEP
+              tag_ref = json.loads(gh('api', f'repos/{repo}/git/ref/tags/{TAG}'))
+              assert tag_ref['object']['sha'] == source_commit
+              for a in final['assets']:
+                  if a['name'] == archive.name:
+                      assert a['digest'] == 'sha256:'+expected
+                  else:
+                      assert a['id'] == old[a['name']]['id'] and a['digest'] == 'sha256:'+IPA_SHA
+              print('Published three downloads; source distribution verified; IPA/TIPA unchanged.')
+
+          if __name__ == '__main__':
+              main()
+          PYCODE
