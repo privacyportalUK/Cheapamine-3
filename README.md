@@ -1,4 +1,6 @@
-# Cheapamine 3
+# Cheapamine 3 (iPhone 8 Plus)
+
+> **Supported only on iPhone 8 Plus (`iPhone10,5`) running iOS 16.7.10 (`20H350`). Other devices and iOS versions are unsupported and untested.**
 
 Maintained by [PrivacyPortal](https://PrivacyPortal.co.uk).
 
@@ -20,7 +22,7 @@ On the test device, touch remained responsive after jailbreaking, installing a t
 
 ## Supported device
 
-This build targets **iPhone 8 Plus (`iPhone10,5`) on iOS 16.7.10 (`20H350`)**.
+This build supports **only iPhone 8 Plus (`iPhone10,5`) on iOS 16.7.10 (`20H350`)**. Other devices and iOS versions are unsupported and untested; compatibility must not be assumed.
 
 R4.1 has been confirmed working on this device configuration. The follow-up diagnostic check found successful app registration and restart, a stable touch reset counter, and no new relevant crash reports.
 
@@ -28,7 +30,7 @@ R4.1 has been confirmed working on this device configuration. The follow-up diag
 
 ### 1. Check your device and download the app
 
-This release has been tested on **iPhone 8 Plus (`iPhone10,5`), iOS 16.7.10 (`20H350`)**. Check your model and iOS version in **Settings → General → About**; other configurations are not confirmed by this release.
+This release has been tested on **iPhone 8 Plus (`iPhone10,5`), iOS 16.7.10 (`20H350`)**. Check your model and iOS version in **Settings → General → About**; other devices and iOS versions are unsupported and untested.
 
 Download [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapmine-3-r4.1/Cheapamine-3-R4.1.ipa) to your computer. The **IPA is the installable app**; the source ZIP is for building it yourself. You will need a Mac or Windows PC, a USB cable, and an Apple account for signing.
 
