@@ -1,5 +1,7 @@
 # Cheapamine 3
 
+Maintained by [PrivacyPortal](https://PrivacyPortal.co.uk).
+
 A Dopamine 3.0.10 fork with Cheapamine's selective restart behavior for iPhone 8 Plus. Includes automatic Sileo and Zebra registration and the R4.1 fix for error 13 during initial jailbreak setup.
 
 ## Download R4.1
@@ -16,11 +18,48 @@ R4.1 has been confirmed working on this device configuration. The follow-up diag
 
 ## Install
 
-1. Restart the phone normally before upgrading from an earlier build.
-2. Sign and sideload the IPA. Use the same signing account and bundle identifier when updating the existing app.
-3. Open the installed jailbreak app and tap **Jailbreak**.
+### 1. Check your device and download the app
 
-After a full device restart, open the app and jailbreak again. The bootstrap `launchctl reboot userspace` command uses Cheapamine's selective restart on this device.
+This release has been tested on **iPhone 8 Plus (`iPhone10,5`), iOS 16.7.10 (`20H350`)**. Check your model and iOS version in **Settings → General → About**; other configurations are not confirmed by this release.
+
+Download [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3/releases/download/cheapmine-3-r4.1/Cheapamine-3-R4.1.ipa) to your computer. The **IPA is the installable app**; the source ZIP is for building it yourself. You will need a Mac or Windows PC, a USB cable, and an Apple account for signing.
+
+### 2. Install the IPA
+
+If you are updating an earlier build, restart the iPhone normally first. Keep the **same signing account and bundle identifier** when installing over your existing copy.
+
+One option is [Sideloadly for macOS or Windows](https://sideloadly.io/):
+
+1. Install Sideloadly from its official website. Windows users should follow its Apple iTunes/iCloud dependency instructions.
+2. Connect the iPhone by USB, unlock it, and accept **Trust This Computer** if prompted.
+3. Select the connected iPhone in Sideloadly and drag the downloaded **IPA** into the app.
+4. Enter your Apple account in Sideloadly, start installation, and complete any authentication prompts. Wait for installation to finish.
+
+If you already have a working IPA signing tool, you can use it instead. Downloading the IPA in Safari alone does not install it.
+
+### 3. Open the app and jailbreak
+
+1. If iOS asks you to trust the signing account, open **Settings → General → VPN & Device Management**, select that account's developer profile, and follow the trust prompt.
+2. If iOS requests **Developer Mode**, open **Settings → Privacy & Security → Developer Mode** and follow the restart and confirmation prompts. See [Apple's Developer Mode guide](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
+3. Open the installed jailbreak app and tap **Jailbreak**. Allow setup and the service restart to finish.
+4. Unlock the phone and open **Sileo** or **Zebra**. R4.1 registers the package-manager apps automatically. Let the package manager refresh before installing packages.
+
+### After restarting or updating
+
+After a full power-off or device restart, open the jailbreak app and tap **Jailbreak** again. A respring is different from a full device restart.
+
+With a free Apple account, Sideloadly-signed apps normally need refreshing every **7 days**. Use Sideloadly's refresh feature or re-sign the IPA before it expires. If the jailbreak app stops opening, check its signing status first.
+
+### Troubleshooting
+
+| What you see | What to do |
+| --- | --- |
+| Sileo or Zebra is missing after a successful jailbreak | Open the jailbreak app's settings and use **Refresh Jailbreak Apps**, then check the Home Screen again. |
+| Error 13 at “Initializing Protection” on an older build | Install **R4.1**, restart the phone normally, then jailbreak again. If it persists on R4.1, save the error log. |
+| The app will not open | Check the developer profile, Developer Mode prompt, and signing expiry. Re-sign using the same account and bundle identifier if needed. |
+| Touch becomes unresponsive | On iPhone 8 Plus, quickly press Volume Up, quickly press Volume Down, then hold Side until the Apple logo appears. After it restarts, check touch before jailbreaking again. Record which action caused the freeze. |
+
+For PrivacyPortal information and contact options, visit **[PrivacyPortal.co.uk](https://PrivacyPortal.co.uk)**. When reporting a problem, include the device model, iOS version, release version, exact error, and what happened immediately before it. Remove account details and device identifiers from any shared logs.
 
 ## Build from source
 
