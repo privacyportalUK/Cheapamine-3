@@ -41,7 +41,7 @@ def source_zip(path):
                 continue
             name = os.fsdecode(raw)
             p = ROOT / name
-            if p.is_dir():
+            if p.is_dir() and not p.is_symlink():
                 continue
             if not p.exists() and not p.is_symlink():
                 raise RuntimeError('Missing source: ' + name)
