@@ -2,7 +2,7 @@
 
 Maintained by [PrivacyPortal](https://PrivacyPortal.co.uk).
 
-A Dopamine 3.0.10 fork with Cheapamine's selective restart behavior for iPhone 8 Plus. Includes automatic Sileo and Zebra registration and the R4.1 fix for error 13 during initial jailbreak setup.
+A Dopamine 3.0.10 fork with Cheapamine's selective restart behavior for iPhone 8 Plus. Includes automatic Sileo and Zebra registration.
 
 ## Download R4.1
 
@@ -26,8 +26,6 @@ Download [Cheapamine-3-R4.1.ipa](https://github.com/privacyportalUK/Cheapamine-3
 
 ### 2. Install the IPA
 
-If you are updating an earlier build, restart the iPhone normally first. Keep the **same signing account and bundle identifier** when installing over your existing copy.
-
 One option is [Sideloadly for macOS or Windows](https://sideloadly.io/):
 
 1. Install Sideloadly from its official website. Windows users should follow its Apple iTunes/iCloud dependency instructions.
@@ -44,7 +42,7 @@ If you already have a working IPA signing tool, you can use it instead. Download
 3. Open the installed jailbreak app and tap **Jailbreak**. Allow setup and the service restart to finish.
 4. Unlock the phone and open **Sileo** or **Zebra**. R4.1 registers the package-manager apps automatically. Let the package manager refresh before installing packages.
 
-### After restarting or updating
+### After restarting and refreshing the app
 
 After a full power-off or device restart, open the jailbreak app and tap **Jailbreak** again. A respring is different from a full device restart.
 
@@ -55,7 +53,7 @@ With a free Apple account, Sideloadly-signed apps normally need refreshing every
 | What you see | What to do |
 | --- | --- |
 | Sileo or Zebra is missing after a successful jailbreak | Open the jailbreak app's settings and use **Refresh Jailbreak Apps**, then check the Home Screen again. |
-| Error 13 at “Initializing Protection” on an older build | Install **R4.1**, restart the phone normally, then jailbreak again. If it persists on R4.1, save the error log. |
+| Setup stops with an error | Save the exact error message, restart the phone normally, and try again. If it repeats, include the log when reporting the problem. |
 | The app will not open | Check the developer profile, Developer Mode prompt, and signing expiry. Re-sign using the same account and bundle identifier if needed. |
 | Touch becomes unresponsive | On iPhone 8 Plus, quickly press Volume Up, quickly press Volume Down, then hold Side until the Apple logo appears. After it restarts, check touch before jailbreaking again. Record which action caused the freeze. |
 
