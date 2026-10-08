@@ -2,7 +2,15 @@
 
 Maintained by [PrivacyPortal](https://PrivacyPortal.co.uk).
 
-A Dopamine 3.0.10 fork with Cheapamine's selective restart behavior for iPhone 8 Plus. Includes automatic Sileo and Zebra registration.
+**A jailbreak with a fix for the frozen or unresponsive touchscreen glitch after jailbreaking or restarting jailbreak services on an iPhone with a third-party replacement screen. Tested on iPhone 8 Plus running iOS 16.7.10.**
+
+Based on Dopamine 3.0.10, with Cheapamine's selective restart behavior and automatic Sileo and Zebra registration.
+
+## Replacement-screen freeze fix
+
+Some replacement screens can lose touch input when jailbreak services restart. Cheapamine 3 uses Cheapamine's selective restart approach to address the freeze encountered on the tested iPhone 8 Plus, while retaining package-manager and tweak support.
+
+On the test device, touch remained responsive after jailbreaking, installing a tweak and respringing. The tested configuration is **iPhone 8 Plus (`iPhone10,5`), iOS 16.7.10 (`20H350`), with a reported third-party replacement screen**. Other iPhone models and replacement-screen variants have not been verified.
 
 ## Download R4.1
 
@@ -59,9 +67,13 @@ With a free Apple account, Sideloadly-signed apps normally need refreshing every
 
 For PrivacyPortal information and contact options, visit **[PrivacyPortal.co.uk](https://PrivacyPortal.co.uk)**. When reporting a problem, include the device model, iOS version, release version, exact error, and what happened immediately before it. Remove account details and device identifiers from any shared logs.
 
-## Build from source
+## Build from source (developers only)
 
-Use macOS with full Xcode, Theos and the iPhoneOS 16.5 SDK, GNU make, Procursus ldid, trustcache, dpkg, libarchive, OpenSSL and zstd. Set `THEOS` to your Theos installation, then run:
+**The released app targets iOS 16.7.10.** To install it, use the IPA and the installation steps above; Xcode and an SDK are not needed.
+
+To compile the source, use macOS with full Xcode, Theos, GNU make, Procursus ldid, trustcache, dpkg, libarchive, OpenSSL and zstd. The build scripts require **iPhoneOS16.5.sdk** in Theos: this is the compiler SDK used to build the app, not the iOS version required on your phone. You do not need to downgrade from iOS 16.7.10.
+
+Set `THEOS` to your Theos installation, then run:
 
 ```sh
 git clone --recursive https://github.com/privacyportalUK/Cheapamine-3.git
